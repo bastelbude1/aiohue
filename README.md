@@ -279,7 +279,7 @@ All JSON files follow a consistent structure:
 
 ## Contributing
 
-This is a personal project for managing Philips Hue bridges. Feel free to fork and adapt for your needs.
+This is a personal project for managing Philips Hue bridges. You're welcome to adapt this toolkit for your own smart home setup or contribute improvements back to the project.
 
 ## License
 
