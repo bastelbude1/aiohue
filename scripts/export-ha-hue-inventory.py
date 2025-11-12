@@ -54,6 +54,7 @@ if VENV_PATH.exists():
 
 import argparse
 import json
+import re
 import subprocess
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -305,6 +306,19 @@ def group_entities_by_type(entities: List[Dict]) -> Dict[str, List[Dict]]:
     return grouped
 
 
+def get_mac_address(device: Dict) -> Optional[str]:
+    """Get first MAC address from device connections."""
+    for conn in device.get("connections", []):
+        if conn[0] == "mac":
+            return conn[1]
+    return None
+
+
+def get_all_mac_addresses(device: Dict) -> List[str]:
+    """Get all MAC addresses from device connections."""
+    return [conn[1] for conn in device.get("connections", []) if conn[0] == "mac"]
+
+
 def create_bridge_inventory(
     bridge: Dict,
     entities: List[Dict],
@@ -351,7 +365,7 @@ def create_bridge_inventory(
                     "model": device.get("model"),
                     "model_id": device.get("model_id"),
                     "sw_version": device.get("sw_version"),
-                    "mac": next((conn[1] for conn in device.get("connections", []) if conn[0] == "mac"), None)
+                    "mac": get_mac_address(device)
                 }
 
         # Add current state if requested
@@ -397,15 +411,39 @@ def create_bridge_inventory(
             "model": bridge_device.get("model"),
             "model_id": bridge_device.get("model_id"),
             "sw_version": bridge_device.get("sw_version"),
-            "mac_addresses": [conn[1] for conn in bridge_device.get("connections", []) if conn[0] == "mac"]
+            "mac_addresses": get_all_mac_addresses(bridge_device)
         }
 
     return inventory
 
 
 def sanitize_filename(name: str) -> str:
-    """Sanitize bridge title for use in filename."""
-    return name.replace(" ", "_").replace("/", "-")
+    """
+    Sanitize bridge title for use in filename.
+
+    Replaces problematic characters with safe alternatives:
+    - Non-alphanumeric characters (except spaces and hyphens) → underscore
+    - Multiple spaces/hyphens → single underscore
+    - Leading/trailing underscores → removed
+
+    Args:
+        name: Bridge title to sanitize
+
+    Returns:
+        Safe filename string
+
+    Examples:
+        >>> sanitize_filename("My Bridge")
+        'My_Bridge'
+        >>> sanitize_filename("Bridge/2024")
+        'Bridge_2024'
+        >>> sanitize_filename("Test  --  Bridge")
+        'Test_Bridge'
+    """
+    # Replace problematic characters with safe alternatives
+    safe_name = re.sub(r'[^\w\s-]', '_', name)  # Keep alphanumeric, spaces, hyphens
+    safe_name = re.sub(r'[-\s]+', '_', safe_name)  # Collapse spaces/hyphens to single underscore
+    return safe_name.strip('_')  # Remove leading/trailing underscores
 
 
 def main():
