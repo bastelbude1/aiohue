@@ -532,7 +532,7 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
                                                             'may': 5, 'june': 6, 'july': 7, 'august': 8,
                                                             'september': 9, 'october': 10, 'november': 11, 'december': 12,
                                                             'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
-                                                            'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                                                            'jun': 6, 'jul': 7, 'aug': 8,
                                                             'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
                                                         }
                                                         month = month_map.get(month_name.lower())
@@ -562,7 +562,7 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
                                                             'may': 5, 'june': 6, 'july': 7, 'august': 8,
                                                             'september': 9, 'october': 10, 'november': 11, 'december': 12,
                                                             'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
-                                                            'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                                                            'jun': 6, 'jul': 7, 'aug': 8,
                                                             'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
                                                         }
                                                         month = month_map.get(month_name.lower())
