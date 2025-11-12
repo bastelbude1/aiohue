@@ -44,7 +44,11 @@ htmlcov/
 # Temporary one-time scripts with hardcoded data
 scripts/*-exposed-*.sh
 scripts/delete-exposed-*.sh
+scripts/exposed-*.txt
 EXPOSED_*.md
+
+# Generic deletion script (will be committed later after fixes)
+scripts/delete-specific-credentials.sh
 
 # Temporary files
 *.tmp
