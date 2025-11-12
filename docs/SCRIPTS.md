@@ -224,7 +224,6 @@ Inventory files are saved with the format: `{BridgeName}-{BridgeID}.json`
 Examples:
 - `Bridge_Office-abc123def456.json`
 - `Bridge_Living-xyz789ghi012.json`
-- `Bridge_Bedroom-mno345pqr678.json`
 
 **Inventory Data Structure:**
 
@@ -410,7 +409,6 @@ Automation files are saved with the format: `{BridgeName}-{BridgeID}-automations
 
 Examples:
 - `Bridge_Office-abc123def456-automations.json`
-- `Hue_Bridge-mno345pqr678-automations.json`
 - `Bridge_Living-xyz789ghi012-automations.json`
 
 **Automation Resources Captured:**
