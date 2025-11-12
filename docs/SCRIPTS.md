@@ -829,7 +829,7 @@ ssh -i /home/baste/HA/homeassistant_ssh_key hassio@192.168.188.42 \
 
 **Solutions:**
 1. Check internet connectivity (N-UPnP requires internet access)
-2. Verify DNS resolution: `nslookg discovery.meethue.com`
+2. Verify DNS resolution: `nslookup discovery.meethue.com`
 3. Try accessing Philips discovery directly:
    ```bash
    curl -s https://discovery.meethue.com/
