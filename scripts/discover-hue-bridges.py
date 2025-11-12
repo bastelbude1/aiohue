@@ -13,13 +13,13 @@ Usage:
     python3 discover-hue-bridges.py --json
 
     # Save discovered bridges to file
-    python3 discover-hue-bridges.py --save /home/baste/HA/aiohue/bridges
+    python3 discover-hue-bridges.py --save /path/to/aiohue/bridges
 
     # Show help
     python3 discover-hue-bridges.py --help
 
 Requirements:
-    - aiohue library (auto-activated from /home/baste/HA/venv)
+    - aiohue library (auto-activated from /path/to/venv)
     - Network connectivity to Philips discovery service
 
 Output:

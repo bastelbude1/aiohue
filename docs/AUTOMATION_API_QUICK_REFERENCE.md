@@ -162,9 +162,9 @@ for instance in bridge.config.behavior_instance.items:
 
 ## File Locations
 
-- **Full Documentation**: `/home/baste/HA/aiohue/HUE_AUTOMATION_RESOURCES.md`
-- **Model Classes**: `/home/baste/HA/venv/lib/python3.14/site-packages/aiohue/v2/models/`
-- **Controllers**: `/home/baste/HA/venv/lib/python3.14/site-packages/aiohue/v2/controllers/`
+- **Full Documentation**: `docs/HUE_AUTOMATION_RESOURCES.md`
+- **Model Classes**: `venv/lib/python3.x/site-packages/aiohue/v2/models/`
+- **Controllers**: `venv/lib/python3.x/site-packages/aiohue/v2/controllers/`
 
 ---
 

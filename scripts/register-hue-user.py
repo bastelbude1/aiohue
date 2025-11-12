@@ -14,7 +14,7 @@ Usage:
     python3 register-hue-user.py --bridges /path/to/bridges
 
     # Register with specific bridge by ID
-    python3 register-hue-user.py --bridge-id ecb5faa015bb
+    python3 register-hue-user.py --bridge-id abc123def456
 
     # Force re-registration (even if already registered)
     python3 register-hue-user.py --force
@@ -23,7 +23,7 @@ Usage:
     python3 register-hue-user.py --help
 
 Requirements:
-    - aiohue library (auto-activated from /home/baste/HA/venv)
+    - aiohue library (auto-activated from /path/to/venv)
     - Physical access to press the bridge button
     - Bridges file from discover-hue-bridges.py
 
@@ -75,7 +75,7 @@ def parse_arguments():
 Examples:
   %(prog)s                                        # Register all unregistered bridges
   %(prog)s --bridges /path/to/bridges             # Use custom bridges file
-  %(prog)s --bridge-id ecb5faa015bb               # Register specific bridge
+  %(prog)s --bridge-id abc123def456               # Register specific bridge
   %(prog)s --force                                # Force re-registration
   %(prog)s --app-name "My Home Automation"        # Custom application name
 

@@ -1,5 +1,10 @@
 # Sensitive data and credentials
 *.json
+.env
+.env.*
+config.ini
+secrets.*
+credentials.*
 
 # Python artifacts
 __pycache__/

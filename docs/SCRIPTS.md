@@ -4,8 +4,8 @@ A collection of utility scripts for managing and controlling Philips Hue bridges
 
 ## Prerequisites
 
-- Python 3.12+ (installed on BastelBude)
-- Virtual environment at `/home/baste/HA/venv/` with aiohue installed
+- Python 3.12+ (installed on your-server)
+- Virtual environment at `/path/to/venv/` with aiohue installed
 - Network connectivity to Philips Hue bridges
 
 ## Setup
@@ -15,7 +15,7 @@ The scripts automatically activate the virtual environment, so no manual activat
 If you need to set up the environment from scratch:
 
 ```bash
-cd /home/baste/HA
+cd /path/to
 python3 -m venv venv
 source venv/bin/activate
 pip install aiohue
@@ -27,7 +27,7 @@ pip install aiohue
 
 Scans the local network for Philips Hue bridges using Philips' N-UPnP discovery service.
 
-**Location:** `/home/baste/HA/aiohue/scripts/discover-hue-bridges.py`
+**Location:** `/path/to/aiohue/scripts/discover-hue-bridges.py`
 
 **Usage:**
 
@@ -39,7 +39,7 @@ python3 discover-hue-bridges.py
 python3 discover-hue-bridges.py --json
 
 # Save discovered bridges to file
-python3 discover-hue-bridges.py --save /home/baste/HA/aiohue/bridges/config.json
+python3 discover-hue-bridges.py --save /path/to/aiohue/bridges/config.json
 
 # Save and display JSON
 python3 discover-hue-bridges.py --save ../bridges/config.json --json
@@ -107,7 +107,7 @@ Bridge #2:
 
 Registers with Philips Hue bridges to create API users (application keys) for authentication. This script prompts you to press the physical button on each bridge and saves the authentication credentials.
 
-**Location:** `/home/baste/HA/aiohue/scripts/register-hue-user.py`
+**Location:** `/path/to/aiohue/scripts/register-hue-user.py`
 
 **Usage:**
 
@@ -134,7 +134,7 @@ python3 register-hue-user.py --help
 **Interactive Process:**
 
 ```
-Loading bridges from: /home/baste/HA/aiohue/bridges/config.json
+Loading bridges from: /path/to/aiohue/bridges/config.json
 Found 1 bridge(s) to register.
 
 ======================================================================
@@ -157,7 +157,7 @@ Press ENTER after pressing the bridge button (or 'skip' to skip, 'quit' to exit)
    Client Key:  def456uvw123...
    Note: Client key enables Entertainment API features
 
-💾 Saving credentials to: /home/baste/HA/aiohue/bridges/config.json
+💾 Saving credentials to: /path/to/aiohue/bridges/config.json
 ✅ Bridges file updated successfully!
 
 You can now use these credentials to control your Hue lights.
@@ -193,7 +193,7 @@ For normal smart home automation, only the username is required. The script auto
 
 Connects to registered Philips Hue bridges and retrieves comprehensive inventory of all resources including devices, lights, scenes, zones, rooms, sensors, and configuration.
 
-**Location:** `/home/baste/HA/aiohue/scripts/inventory-hue-bridge.py`
+**Location:** `/path/to/aiohue/scripts/inventory-hue-bridge.py`
 
 **Usage:**
 
@@ -269,7 +269,7 @@ Examples:
 
 Query and filter inventory data collected from Philips Hue bridges with flexible search options and multiple output formats.
 
-**Location:** `/home/baste/HA/aiohue/scripts/query-hue-inventory.py`
+**Location:** `/path/to/aiohue/scripts/query-hue-inventory.py`
 
 **Usage:**
 
@@ -379,7 +379,7 @@ Total Across All Bridges:
 
 Connects to registered Philips Hue bridges and retrieves comprehensive automation data including smart scenes, behavior instances, behavior scripts, geofence clients, and geolocation settings.
 
-**Location:** `/home/baste/HA/aiohue/scripts/automation-hue-bridge.py`
+**Location:** `/path/to/aiohue/scripts/automation-hue-bridge.py`
 
 **Usage:**
 
@@ -533,7 +533,7 @@ cat bridges/automations/Bridge_Office-abc123def456-automations.json | \
 
 Query and filter automation data collected from Philips Hue bridges with flexible search options and multiple output formats - the automation equivalent of `query-hue-inventory.py`.
 
-**Location:** `/home/baste/HA/aiohue/scripts/query-hue-automation.py`
+**Location:** `/path/to/aiohue/scripts/query-hue-automation.py`
 
 **Usage:**
 
@@ -692,7 +692,7 @@ BEHAVIOR INSTANCES:
 
 ```bash
 # Step 1: Discover bridges on your network
-cd /home/baste/HA/aiohue/scripts
+cd /path/to/aiohue/scripts
 python3 discover-hue-bridges.py --save ../bridges/config.json
 
 # Step 2: Register with discovered bridges
@@ -700,7 +700,7 @@ python3 register-hue-user.py
 # (Follow prompts to press button on each bridge)
 
 # Step 3: Verify registration
-cat /home/baste/HA/aiohue/bridges/config.json
+cat /path/to/aiohue/bridges/config.json
 # Should show "registered": true for each bridge
 ```
 
@@ -719,7 +719,7 @@ python3 discover-hue-bridges.py --json | jq -e ".bridges[] | select(.ip == \"$BR
 
 ```bash
 # Create inventory snapshot of all bridges
-cd /home/baste/HA/aiohue/scripts
+cd /path/to/aiohue/scripts
 python3 inventory-hue-bridge.py
 
 # View inventory files
@@ -748,7 +748,7 @@ python3 query-hue-inventory.py --type lights --json > lights.json
 
 ```bash
 # Capture automation data from all bridges
-cd /home/baste/HA/aiohue/scripts
+cd /path/to/aiohue/scripts
 python3 automation-hue-bridge.py
 
 # View automation files
@@ -788,8 +788,8 @@ python3 automation-hue-bridge.py --json > complete-automation-data.json
 
 ```bash
 # SSH into Home Assistant and run discovery from there
-ssh -i /home/baste/HA/homeassistant_ssh_key hassio@192.168.188.42 \
-  "curl -s 'http://BastelBude/aiohue/scripts/discover-hue-bridges.py' | python3"
+ssh -i /path/to/ssh_key hassio@192.168.1.10 \
+  "curl -s 'http://your-server/aiohue/scripts/discover-hue-bridges.py' | python3"
 ```
 
 ---
@@ -812,10 +812,10 @@ ssh -i /home/baste/HA/homeassistant_ssh_key hassio@192.168.188.42 \
 **Problem:** `ImportError: No module named 'aiohue'`
 
 **Solutions:**
-1. Verify the virtual environment exists: `ls /home/baste/HA/venv/`
+1. Verify the virtual environment exists: `ls /path/to/venv/`
 2. Reinstall aiohue:
    ```bash
-   cd /home/baste/HA
+   cd /path/to
    source venv/bin/activate
    pip install --upgrade aiohue
    ```
@@ -844,7 +844,7 @@ When creating new scripts for this collection, follow these standards:
 
 1. **Shebang:** `#!/usr/bin/env python3`
 2. **Docstring:** Comprehensive module-level docstring with usage examples
-3. **Auto-venv activation:** Scripts must auto-activate `/home/baste/HA/venv/`
+3. **Auto-venv activation:** Scripts must auto-activate `/path/to/venv/`
 4. **argparse:** Use argparse for command-line arguments
 5. **--help flag:** Detailed help text with examples
 6. **--json flag:** Support both interactive and JSON output modes
