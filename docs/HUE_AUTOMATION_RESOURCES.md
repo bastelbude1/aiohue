@@ -79,7 +79,7 @@ import asyncio
 from aiohue.v2 import HueBridgeV2
 
 async def show_smart_scenes():
-    bridge = HueBridgeV2("192.168.188.134", "app_key")
+    bridge = HueBridgeV2("192.168.1.100", "app_key")
     await bridge.initialize()
     
     for scene in bridge.scenes.smart_scene.items:
@@ -154,7 +154,7 @@ bridge.config.behavior_script[script_id]     # Get specific script
 ### Code Example
 ```python
 async def list_available_automations():
-    bridge = HueBridgeV2("192.168.188.134", "app_key")
+    bridge = HueBridgeV2("192.168.1.100", "app_key")
     await bridge.initialize()
     
     for script in bridge.config.behavior_script.items:
@@ -233,7 +233,7 @@ await bridge.config.behavior_instance.update(id, BehaviorInstancePut(...))  # Up
 ### Code Example
 ```python
 async def show_active_automations():
-    bridge = HueBridgeV2("192.168.188.134", "app_key")
+    bridge = HueBridgeV2("192.168.1.100", "app_key")
     await bridge.initialize()
     
     for instance in bridge.config.behavior_instance.items:
@@ -288,7 +288,7 @@ geofence_clients = await bridge.request("get", "clip/v2/resource/geofence_client
 ### Code Example
 ```python
 async def list_geofence_clients():
-    bridge = HueBridgeV2("192.168.188.134", "app_key")
+    bridge = HueBridgeV2("192.168.1.100", "app_key")
     await bridge.initialize()
     
     geofence_clients = await bridge.request("get", "clip/v2/resource/geofence_client")
@@ -347,7 +347,7 @@ geolocation = await bridge.request("get", "clip/v2/resource/geolocation")
 ### Code Example
 ```python
 async def get_sunrise_sunset():
-    bridge = HueBridgeV2("192.168.188.134", "app_key")
+    bridge = HueBridgeV2("192.168.1.100", "app_key")
     await bridge.initialize()
     
     geolocation = await bridge.request("get", "clip/v2/resource/geolocation")
@@ -440,7 +440,7 @@ async def show_all_automations(bridge_ip: str, app_key: str):
         await bridge.close()
 
 # Usage
-asyncio.run(show_all_automations("192.168.188.134", "your-app-key"))
+asyncio.run(show_all_automations("192.168.1.100", "your-app-key"))
 ```
 
 ---
