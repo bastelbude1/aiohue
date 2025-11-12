@@ -93,7 +93,7 @@ def load_credential_names(file_path=None, names=None):
 
                 # Check if it's our detailed format
                 if isinstance(data, dict) and 'apps' in data:
-                    print(f"📋 Loaded detailed JSON format")
+                    print("📋 Loaded detailed JSON format")
                     print(f"   Generated: {data.get('generated', 'Unknown')}")
                     if data.get('cutoff_date'):
                         print(f"   Cutoff date: {data['cutoff_date']}")
@@ -105,7 +105,7 @@ def load_credential_names(file_path=None, names=None):
                     for app in data['apps']:
                         credential_names.add(app['base_name'])
                 else:
-                    print(f"⚠️  JSON format not recognized, treating as text")
+                    print("⚠️  JSON format not recognized, treating as text")
                     # Fall through to text parsing
 
             except json.JSONDecodeError:
@@ -316,7 +316,8 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
                     print("🔘 Clicking 'Alle Anwendungen' to expand...")
                     alle_anwendungen.click()
                     page.wait_for_timeout(3000)
-            except:
+            except Exception:
+                # "Alle Anwendungen" button not found or not clickable
                 pass
 
             # Click "Weitere Informationen" button to show more credentials
@@ -432,8 +433,6 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
                     print(f"   ⚠️  Error processing title: {e}")
 
             print(f"\n   Total credentials found: {len(credential_cards)}")
-
-            integration_links = []  # Keep for compatibility below
 
             # If no filter specified, list ALL credentials
             if credential_names is None:
@@ -574,7 +573,7 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
                                                                 year_full += 1900
                                                             return datetime(year_full, month, int(day), int(hour), int(minute))
 
-                                                except Exception:
+                                                except (ValueError, AttributeError, TypeError):
                                                     # Avoid raising on unexpected formats
                                                     pass
 
@@ -590,7 +589,7 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
                                                         return datetime.fromisoformat(iso_string.split('.')[0])
                                                     else:
                                                         return datetime.fromisoformat(iso_string.replace('T', ' '))
-                                                except:
+                                                except (ValueError, TypeError):
                                                     return None
 
                                             for entry_to_delete in app_detail['entries_to_delete']:
@@ -691,6 +690,7 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
                                                                         print(f"      ⏭️  Skipping: Date doesn't match (page: {page_date}, expected: {expected_date})")
                                                     except Exception as e:
                                                         # Skip this card, try next
+                                                        print(f"      ⚠️  Error processing entry card: {e}")
                                                         continue
 
                                                 if not found_entry:
@@ -804,9 +804,8 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
 
             # If interrupted, exit immediately after cleanup
             if interrupted:
-                import os
                 print("\n✅ Done!")
-                os._exit(0)
+                sys.exit(0)
 
     print("\n✅ Done!")
 
@@ -939,9 +938,8 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n\n❌ Cancelled by user (Ctrl+C)")
-        # Force exit immediately
-        import os
-        os._exit(0)
+        # Allow cleanup and exit gracefully
+        sys.exit(0)
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         import traceback
