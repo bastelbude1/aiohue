@@ -41,6 +41,8 @@ import json
 import argparse
 import asyncio
 import re
+import aiohttp
+from collections import defaultdict
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -133,8 +135,10 @@ def is_user_stale(last_use_str: str, cutoff_date: datetime) -> bool:
         return True
 
     try:
-        # Parse ISO date format: "2025-11-12T15:31:13"
-        last_use = datetime.fromisoformat(last_use_str.replace('T', ' ').split('.')[0])
+        # Parse ISO date format: "2025-11-12T15:31:13" or "2025-11-12T15:31:13.123456"
+        # fromisoformat handles both with and without microseconds
+        # Replace 'Z' timezone indicator with '+00:00' for compatibility
+        last_use = datetime.fromisoformat(last_use_str.replace('Z', '+00:00').split('+')[0].split('.')[0])
         return last_use < cutoff_date
     except (ValueError, AttributeError):
         # If we can't parse, consider it stale to be safe
@@ -184,7 +188,7 @@ def parse_filter(filter_str: str) -> dict:
         if field not in VALID_FIELDS:
             raise ValueError(
                 f"Unknown field: '{field}'. "
-                "Valid fields: username, name, created, last_used"
+                "Valid fields: username, name, created, last_used (also accepts 'last-used' or 'lastused')"
             )
         return {'field': field, 'operator': '!~', 'value': value.strip()}
     elif '!=' in filter_str:
@@ -193,7 +197,7 @@ def parse_filter(filter_str: str) -> dict:
         if field not in VALID_FIELDS:
             raise ValueError(
                 f"Unknown field: '{field}'. "
-                "Valid fields: username, name, created, last_used"
+                "Valid fields: username, name, created, last_used (also accepts 'last-used' or 'lastused')"
             )
         return {'field': field, 'operator': '!=', 'value': value.strip()}
     elif '~' in filter_str:
@@ -202,7 +206,7 @@ def parse_filter(filter_str: str) -> dict:
         if field not in VALID_FIELDS:
             raise ValueError(
                 f"Unknown field: '{field}'. "
-                "Valid fields: username, name, created, last_used"
+                "Valid fields: username, name, created, last_used (also accepts 'last-used' or 'lastused')"
             )
         return {'field': field, 'operator': '~', 'value': value.strip()}
     elif '=' in filter_str:
@@ -211,7 +215,7 @@ def parse_filter(filter_str: str) -> dict:
         if field not in VALID_FIELDS:
             raise ValueError(
                 f"Unknown field: '{field}'. "
-                "Valid fields: username, name, created, last_used"
+                "Valid fields: username, name, created, last_used (also accepts 'last-used' or 'lastused')"
             )
         return {'field': field, 'operator': '=', 'value': value.strip()}
     else:
@@ -252,7 +256,7 @@ def matches_filter(user: dict, filter_spec: dict) -> bool:
     if field not in field_map:
         raise ValueError(
             f"Unknown field: '{field}'. "
-            "Valid fields: username, name, created, last_used"
+            "Valid fields: username, name, created, last_used (also accepts 'last-used' or 'lastused')"
         )
 
     field_name = field_map[field]
@@ -294,7 +298,6 @@ def matches_all_filters(user: dict, filters: list) -> bool:
         return True
 
     # Group filters by field
-    from collections import defaultdict
     field_groups = defaultdict(list)
     for f in filters:
         # Normalize field names
@@ -315,8 +318,6 @@ def matches_all_filters(user: dict, filters: list) -> bool:
 
 async def get_bridge_name(bridge_ip: str, username: str) -> str:
     """Get the bridge name from the API."""
-    import aiohttp
-
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -326,14 +327,12 @@ async def get_bridge_name(bridge_ip: str, username: str) -> str:
             ) as response:
                 config = await response.json()
                 return config.get("name", "Unknown")
-    except:
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError):
         return "Unknown"
 
 
 async def list_users(bridge_ip: str, username: str, client_key: str):
     """List all registered users on a bridge."""
-    import aiohttp
-
     try:
         # Use V1 API directly (whitelist is not available in V2 API)
         async with aiohttp.ClientSession() as session:
@@ -728,8 +727,6 @@ This script identifies which credentials need deletion.
                 temp_file = Path(tempfile.gettempdir()) / f"hue-credentials-to-delete-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
 
                 try:
-                    import json
-
                     # Create detailed JSON format with cutoff date and UUIDs
                     deletion_data = {
                         'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
