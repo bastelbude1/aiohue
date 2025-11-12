@@ -11,7 +11,7 @@ Usage:
     python3 automation-hue-bridge.py
 
     # Capture from specific bridge by ID
-    python3 automation-hue-bridge.py --bridge-id ecb5faa015bb
+    python3 automation-hue-bridge.py --bridge-id abc123def456
 
     # Use custom config file location
     python3 automation-hue-bridge.py --config /path/to/config.json
@@ -26,7 +26,7 @@ Usage:
     python3 automation-hue-bridge.py --help
 
 Requirements:
-    - aiohue library (auto-activated from /home/baste/HA/venv)
+    - aiohue library (auto-activated from /path/to/venv)
     - Registered bridges with credentials in config file
 
 Output:
@@ -108,7 +108,7 @@ def parse_arguments():
         epilog="""
 Examples:
   %(prog)s                                        # Capture all bridges
-  %(prog)s --bridge-id ecb5faa015bb               # Capture specific bridge
+  %(prog)s --bridge-id abc123def456               # Capture specific bridge
   %(prog)s --config /path/to/config.json          # Use custom config file
   %(prog)s --output /path/to/automations          # Custom output directory
   %(prog)s --json                                 # JSON output to stdout

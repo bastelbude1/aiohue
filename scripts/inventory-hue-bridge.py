@@ -10,7 +10,7 @@ Usage:
     python3 inventory-hue-bridge.py
 
     # Inventory specific bridge by ID
-    python3 inventory-hue-bridge.py --bridge-id ecb5faa015bb
+    python3 inventory-hue-bridge.py --bridge-id abc123def456
 
     # Use custom config file location
     python3 inventory-hue-bridge.py --config /path/to/config.json
@@ -25,7 +25,7 @@ Usage:
     python3 inventory-hue-bridge.py --help
 
 Requirements:
-    - aiohue library (auto-activated from /home/baste/HA/venv)
+    - aiohue library (auto-activated from /path/to/venv)
     - Registered bridges with credentials in config file
 
 Output:
@@ -100,7 +100,7 @@ def parse_arguments():
         epilog="""
 Examples:
   %(prog)s                                        # Inventory all bridges
-  %(prog)s --bridge-id ecb5faa015bb               # Inventory specific bridge
+  %(prog)s --bridge-id abc123def456               # Inventory specific bridge
   %(prog)s --config /path/to/config.json          # Use custom config file
   %(prog)s --output /path/to/inventory            # Custom output directory
   %(prog)s --json                                 # JSON output to stdout

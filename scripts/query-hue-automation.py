@@ -70,7 +70,7 @@ Examples:
   %(prog)s --type smart_scenes                    # List all smart scenes
   %(prog)s --type behavior_instances --state enabled  # Find enabled automations
   %(prog)s --name "*Wake*"                        # Find automations by name
-  %(prog)s --bridge ecb5faa015bb                  # Query specific bridge
+  %(prog)s --bridge abc123def456                  # Query specific bridge
   %(prog)s --type behavior_instances --detailed   # Detailed automation info
   %(prog)s --summary                              # Summary across all bridges
   %(prog)s --json                                 # JSON output for scripting

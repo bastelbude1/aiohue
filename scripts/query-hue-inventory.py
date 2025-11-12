@@ -10,7 +10,7 @@ Usage:
     python3 query-hue-inventory.py --type lights --name "*Küche*"
 
     # All devices on specific bridge
-    python3 query-hue-inventory.py --bridge ecb5faa015bb --type devices
+    python3 query-hue-inventory.py --bridge abc123def456 --type devices
 
     # Lights that are currently on
     python3 query-hue-inventory.py --type lights --state on
@@ -69,7 +69,7 @@ def parse_arguments():
         epilog="""
 Examples:
   %(prog)s --type lights --name "*Küche*"         # Find lights with "Küche" in name
-  %(prog)s --bridge ecb5faa015bb                  # Query specific bridge
+  %(prog)s --bridge abc123def456                  # Query specific bridge
   %(prog)s --type lights --state on               # Find lights that are on
   %(prog)s --type devices --detailed              # Detailed device information
   %(prog)s --summary                              # Summary across all bridges
