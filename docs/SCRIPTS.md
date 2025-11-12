@@ -233,7 +233,7 @@ Examples:
     "ip": "192.168.1.100",
     "inventoried_at": "2025-11-12T11:07:47.767740",
     "config": {
-      "bridge_id": "abc123fffdef456",
+      "bridge_id": "abc123def456",
       "name": "Bridge_Office",
       "model_id": "BSB002",
       "sw_version": "1.71.2071026000"
@@ -450,7 +450,7 @@ Examples:
     "ip": "192.168.1.100",
     "captured_at": "2025-11-12T13:04:35.123456",
     "config": {
-      "bridge_id": "ecb5fafffea015bb",
+      "bridge_id": "abc123def456",
       "name": "Bridge_Office",
       "model_id": "BSB002",
       "sw_version": "1.71.2071026000"
