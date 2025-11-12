@@ -78,8 +78,8 @@ Examples:
 State Filters:
   --state on                    # Lights that are on
   --state off                   # Lights that are off
-  --state "brightness>50"       # Lights with brightness > 50%
-  --state "brightness<30"       # Lights with brightness < 30%
+  --state "brightness>50"       # Lights with brightness > 50%%
+  --state "brightness<30"       # Lights with brightness < 30%%
 
 For more information, visit: https://github.com/home-assistant-libs/aiohue
         """
