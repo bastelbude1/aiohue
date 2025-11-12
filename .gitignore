@@ -1,0 +1,42 @@
+# Sensitive data and credentials
+*.json
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# SSH keys
+*.pem
+*_ssh_key
+*_ssh_key.pub
+
+# Temporary files
+*.tmp
+*.bak
+.cache/
