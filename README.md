@@ -22,8 +22,8 @@ A comprehensive Python toolkit for managing multiple Philips Hue bridges using t
 ### 1. Activate Virtual Environment
 
 ```bash
-cd /home/baste/HA/aiohue
-source /home/baste/HA/venv/bin/activate  # Adjust path to your venv
+cd path/to/aiohue  # Replace with your project directory
+source path/to/venv/bin/activate  # Activate your virtual environment
 ```
 
 ### 2. Discover Bridges
@@ -237,7 +237,7 @@ python3 query-hue-inventory.py --name "*sensor*" --detailed
 
 ### Virtual Environment Setup
 
-The scripts automatically activate the virtual environment at `/home/baste/HA/venv/` if available. To set up your own:
+The scripts automatically activate the virtual environment if available. To set up your own:
 
 ```bash
 python3 -m venv venv
