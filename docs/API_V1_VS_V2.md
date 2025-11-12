@@ -34,16 +34,28 @@ This document explains why some scripts use V2 API while credential management r
 **Used by:** All credential deletion scripts
 
 **Available endpoints:**
-- ✅ All V2 functionality (in different format)
+- ✅ `/api/{username}/lights` - Basic light control (on/off, brightness, color)
+- ✅ `/api/{username}/groups` - Group/room control
+- ✅ `/api/{username}/scenes` - Basic scenes (static only)
+- ✅ `/api/{username}/sensors` - Sensor data
+- ✅ `/api/{username}/schedules` - Time-based schedules
+- ✅ `/api/{username}/rules` - Basic automation rules
 - ✅ `/api/{username}/config` - **Bridge configuration**
 - ✅ `/api/{username}/config/whitelist` - **User management**
 - ✅ User creation, deletion, listing
 
+**V2-exclusive features NOT in V1:**
+- ❌ `behavior_instance` - Advanced automations
+- ❌ `smart_scene` - Dynamic/adaptive scenes
+- ❌ Entertainment API v2 - Gradient zone controls
+- ❌ Event streaming (SSE) - Real-time updates
+- ❌ Resource-based architecture - Richer metadata
+
 **Characteristics:**
-- Polling-based
-- Flat structure
-- Includes **administrative functions**
-- Still fully supported
+- Polling-based (no event streaming)
+- Flat JSON structure
+- Includes **administrative functions** (V2 doesn't)
+- Still fully supported but missing modern features
 
 ---
 
@@ -152,19 +164,22 @@ async with aiohttp.ClientSession() as session:
 ## When to Use Which API
 
 ### Use V2 API When:
-- ✅ Controlling lights
-- ✅ Managing scenes
-- ✅ Reading device information
-- ✅ Working with automations
-- ✅ Getting sensor data
-- ✅ Managing rooms/zones
+- ✅ Controlling lights (better metadata, typed responses)
+- ✅ Managing scenes (includes smart scenes, not in V1)
+- ✅ Reading device information (richer resource data)
+- ✅ Working with automations (behavior_instance - V2 only)
+- ✅ Getting sensor data (both APIs have this)
+- ✅ Managing rooms/zones (both APIs have this)
+- ✅ Need event streaming (SSE - V2 only)
+- ✅ Entertainment mode with gradients (V2 only)
 
 ### Use V1 API When:
-- ✅ Managing user credentials
-- ✅ Listing registered applications
-- ✅ Deleting user access
-- ✅ Checking who has access to bridge
-- ✅ Administrative bridge configuration
+- ✅ Managing user credentials (whitelist - V1 only)
+- ✅ Listing registered applications (V1 only)
+- ✅ Deleting user access (V1 only)
+- ✅ Checking who has access to bridge (V1 only)
+- ✅ Administrative bridge configuration (V1 only)
+- ✅ Simple light control is sufficient (basic features work in both)
 
 ---
 
@@ -199,6 +214,21 @@ config = await response.json()
 users = config["whitelist"]  # ✅ Works
 ```
 
+**Access Smart Scenes (Dynamic/Adaptive):**
+
+```python
+# V2 API (Only Option)
+bridge = HueBridgeV2(ip, username)
+await bridge.initialize()
+smart_scenes = bridge.scenes.smart_scene.items  # ✅ Works
+for scene in smart_scenes:
+    print(scene.metadata.name, scene.state)  # Dynamic scene state
+
+# V1 API
+# ❌ Not possible - smart scenes don't exist in V1
+# V1 only has static scenes via /api/{username}/scenes
+```
+
 ---
 
 ## Future Migration?
@@ -227,12 +257,20 @@ Unlikely, because:
 - All apps must use V1 for credential management
 
 **Why other scripts use V2:**
-- V2 is better for lights, devices, scenes, automations
-- Modern architecture with better performance
-- Event streaming support
-- Cleaner, typed data structures
+- V2 has exclusive features: smart scenes, behavior_instance, event streaming, gradient controls
+- Modern architecture with better performance and richer metadata
+- Cleaner, typed data structures with resource-based design
+- Better for application functionality (vs administration)
 
-**Both APIs are needed** for complete bridge management.
+**API Overlap:**
+- Basic light control: Both APIs support this (V2 has better metadata)
+- Static scenes: Both APIs support this (V2 adds smart scenes)
+- Groups/rooms: Both APIs support this
+- Sensors: Both APIs support this
+
+**Both APIs are needed** for complete bridge management:
+- V1 for administrative tasks (credentials, config)
+- V2 for modern features (smart scenes, automations, streaming)
 
 ---
 
