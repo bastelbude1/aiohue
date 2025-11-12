@@ -48,7 +48,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Auto-activate virtual environment
-VENV_PATH = Path(__file__).parent.parent.parent / "venv"
+VENV_PATH = Path(__file__).parent.parent / "venv"
 if VENV_PATH.exists():
     venv_site_packages = VENV_PATH / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
     if venv_site_packages.exists():
