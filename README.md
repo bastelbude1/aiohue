@@ -71,7 +71,7 @@ python3 query-hue-automation.py --state enabled --type behavior_instances
 
 ## Project Structure
 
-```
+```text
 aiohue/
 ├── README.md                                    # This file
 ├── docs/
