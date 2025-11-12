@@ -41,6 +41,11 @@ htmlcov/
 *_ssh_key
 *_ssh_key.pub
 
+# Temporary one-time scripts with hardcoded data
+scripts/*-exposed-*.sh
+scripts/delete-exposed-*.sh
+EXPOSED_*.md
+
 # Temporary files
 *.tmp
 *.bak
