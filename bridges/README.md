@@ -14,8 +14,11 @@ This directory stores sensitive configuration and generated data for Philips Hue
 bridges/
 ├── README.md                    # This file (tracked in git)
 ├── config.json                  # Bridge credentials (NEVER commit!)
-├── inventory/                   # Device inventories (NEVER commit!)
+├── inventory/                   # aiohue device inventories (NEVER commit!)
 │   ├── BridgeName-BridgeID.json
+│   └── ...
+├── ha_inventory/                # Home Assistant Hue inventories (NEVER commit!)
+│   ├── ha_BridgeName-BridgeID.json
 │   └── ...
 └── automations/                 # Automation data (NEVER commit!)
     ├── BridgeName-BridgeID-automations.json
@@ -87,6 +90,51 @@ Contains automation configurations from each bridge including:
 
 **Why excluded:** Contains personal automation schedules, routines, and home patterns.
 
+### `ha_inventory/` - Home Assistant Hue Integration Inventories
+
+**Status:** 🔴 SENSITIVE - NEVER COMMIT
+
+Contains Hue device inventories from the Home Assistant integration perspective, including:
+- Entity IDs (HA namespace)
+- Device configurations and capabilities
+- Area assignments (HA rooms)
+- User customizations (friendly names, etc.)
+- Entity registry data
+- Optionally: current entity states
+
+**Created by:** `export-ha-hue-inventory.py`
+
+**Purpose:** Provides a complementary view to aiohue inventories:
+- **aiohue inventories:** Direct Hue API v2 resources (technical, low-level, bridge perspective)
+- **HA inventories:** Home Assistant integration perspective (entity IDs, areas, user customization)
+
+**Format:**
+```json
+{
+  "metadata": {
+    "source": "home_assistant",
+    "ha_version": "2025.11.1",
+    "exported_at": "timestamp"
+  },
+  "bridge_info": {
+    "title": "Bridge_Name",
+    "unique_id": "abc123def456",
+    "host": "192.168.1.100"
+  },
+  "resources": {
+    "light": {"count": X, "items": [...]},
+    "sensor": {"count": X, "items": [...]},
+    "scene": {"count": X, "items": [...]}
+  }
+}
+```
+
+**Why excluded:** Contains personal device names, room layouts, entity customizations, and integration data.
+
+**Comparison with aiohue inventories:**
+- **Use aiohue inventories** for: Technical specs, Hue-native resource IDs, direct API development
+- **Use HA inventories** for: Home Assistant automation development, entity ID mapping, area assignments
+
 ## Setup Instructions
 
 ### First Time Setup
@@ -115,6 +163,15 @@ Contains automation configurations from each bridge including:
    python3 automation-hue-bridge.py
    ```
    Creates `bridges/automations/` with automation data.
+
+5. **Export Home Assistant Hue inventory (optional):**
+   ```bash
+   # Set your HA host
+   export HA_SSH_HOST="your-ha-host"
+   python3 export-ha-hue-inventory.py
+   ```
+   Creates `bridges/ha_inventory/` with HA integration perspective.
+   Requires SSH access to Home Assistant server (configure HA_SSH_HOST).
 
 ### Backup Recommendation
 
