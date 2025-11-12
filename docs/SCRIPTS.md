@@ -60,13 +60,13 @@ Philips Hue Bridge Discovery
 Found 2 bridge(s):
 
 Bridge #1:
-  ID:              ecb5faa015bb
-  IP Address:      192.168.188.134
+  ID:              abc123def456
+  IP Address:      192.168.1.100
   API Support:     v2 (modern)
 ----------------------------------------------------------------------
 Bridge #2:
-  ID:              001788b3e355
-  IP Address:      192.168.188.38
+  ID:              xyz789ghi012
+  IP Address:      192.168.1.101
   API Support:     v2 (modern)
 ----------------------------------------------------------------------
 ```
@@ -78,13 +78,13 @@ Bridge #2:
   "count": 2,
   "bridges": [
     {
-      "id": "ecb5faa015bb",
-      "ip": "192.168.188.134",
+      "id": "abc123def456",
+      "ip": "192.168.1.100",
       "supports_v2": true
     },
     {
-      "id": "001788b3e355",
-      "ip": "192.168.188.38",
+      "id": "xyz789ghi012",
+      "ip": "192.168.1.101",
       "supports_v2": true
     }
   ]
@@ -119,7 +119,7 @@ python3 register-hue-user.py
 python3 register-hue-user.py --bridges /path/to/bridges
 
 # Register with specific bridge by ID
-python3 register-hue-user.py --bridge-id ecb5faa015bb
+python3 register-hue-user.py --bridge-id abc123def456
 
 # Force re-registration (even if already registered)
 python3 register-hue-user.py --force
@@ -138,9 +138,9 @@ Loading bridges from: /home/baste/HA/aiohue/bridges/config.json
 Found 1 bridge(s) to register.
 
 ======================================================================
-Bridge:   ecb5faa015bb
-IP:       192.168.188.134
-DNS Name: Detsch-OG.fritz.box
+Bridge:   abc123def456
+IP:       192.168.1.100
+DNS Name: bridge-office.local
 ======================================================================
 
 ⚠️  ACTION REQUIRED:
@@ -151,7 +151,7 @@ Press ENTER after pressing the bridge button (or 'skip' to skip, 'quit' to exit)
 
 🔄 Attempting to register with bridge...
    Requesting V2 credentials (username + clientkey)...
-✅ Successfully registered with bridge ecb5faa015bb
+✅ Successfully registered with bridge abc123def456
    API Version: V2
    Username:    abc123xyz789...
    Client Key:  def456uvw123...
@@ -202,7 +202,7 @@ Connects to registered Philips Hue bridges and retrieves comprehensive inventory
 python3 inventory-hue-bridge.py
 
 # Inventory specific bridge by ID
-python3 inventory-hue-bridge.py --bridge-id ecb5faa015bb
+python3 inventory-hue-bridge.py --bridge-id abc123def456
 
 # Use custom config file location
 python3 inventory-hue-bridge.py --config /path/to/config.json
@@ -222,33 +222,33 @@ python3 inventory-hue-bridge.py --help
 Inventory files are saved with the format: `{BridgeName}-{BridgeID}.json`
 
 Examples:
-- `Detsch_OG-ecb5faa015bb.json`
-- `Hue_Bridge-c42996c4e528.json`
-- `Detsch_EG-001788b3e355.json`
+- `Bridge_Office-abc123def456.json`
+- `Bridge_Living-xyz789ghi012.json`
+- `Bridge_Bedroom-mno345pqr678.json`
 
 **Inventory Data Structure:**
 
 ```json
 {
   "bridge_info": {
-    "ip": "192.168.188.134",
+    "ip": "192.168.1.100",
     "inventoried_at": "2025-11-12T11:07:47.767740",
     "config": {
-      "bridge_id": "ecb5fafffea015bb",
-      "name": "Detsch_OG",
+      "bridge_id": "abc123fffdef456",
+      "name": "Bridge_Office",
       "model_id": "BSB002",
       "sw_version": "1.71.2071026000"
     }
   },
   "resources": {
-    "devices": { "count": 34, "items": [...] },
-    "lights": { "count": 28, "items": [...] },
-    "scenes": { "count": 90, "items": [...] },
+    "devices": { "count": 15, "items": [...] },
+    "lights": { "count": 12, "items": [...] },
+    "scenes": { "count": 25, "items": [...] },
     "groups": {
-      "zones": { "count": 0, "items": [] },
-      "rooms": { "count": 0, "items": [] }
+      "zones": { "count": 2, "items": [...] },
+      "rooms": { "count": 3, "items": [...] }
     },
-    "sensors": { "count": 49, "items": [...] }
+    "sensors": { "count": 8, "items": [...] }
   }
 }
 ```
@@ -279,7 +279,7 @@ Query and filter inventory data collected from Philips Hue bridges with flexible
 python3 query-hue-inventory.py --type lights --name "*Küche*"
 
 # All devices on specific bridge
-python3 query-hue-inventory.py --bridge ecb5faa015bb --type devices
+python3 query-hue-inventory.py --bridge abc123def456 --type devices
 
 # Lights that are currently on
 python3 query-hue-inventory.py --type lights --state on
@@ -307,7 +307,7 @@ python3 query-hue-inventory.py --help
 | `--name PATTERN` | Filter by name (supports wildcards) | `*Küche*`, `Lamp*`, `*Bedroom?` |
 | `--type TYPE` | Filter by resource type | `lights`, `devices`, `scenes`, `sensors`, `zones`, `rooms` |
 | `--state STATE` | Filter by state | `on`, `off`, `brightness>50`, `brightness<30` |
-| `--bridge ID` | Query specific bridge | `ecb5faa015bb` |
+| `--bridge ID` | Query specific bridge | `abc123def456` |
 
 **Output Formats:**
 
@@ -325,7 +325,7 @@ python3 query-hue-inventory.py --help
 Query Results
 ================================================================================
 
-Bridge: Detsch_OG (ecb5faa015bb)
+Bridge: Bridge_Office (abc123def456)
 --------------------------------------------------------------------------------
 
 LIGHTS (5):
@@ -343,13 +343,13 @@ LIGHTS (5):
 Query Summary
 ======================================================================
 
-Bridge: Detsch_OG (ecb5faa015bb)
+Bridge: Bridge_Office (abc123def456)
   Lights: 28
   Devices: 34
   Scenes: 90
   Sensors: 49
 
-Bridge: Detsch_EG (001788b3e355)
+Bridge: Bridge_Living (xyz789ghi012)
   Lights: 56
   Devices: 65
   Scenes: 124
@@ -389,7 +389,7 @@ Connects to registered Philips Hue bridges and retrieves comprehensive automatio
 python3 automation-hue-bridge.py
 
 # Capture from specific bridge by ID
-python3 automation-hue-bridge.py --bridge-id ecb5faa015bb
+python3 automation-hue-bridge.py --bridge-id abc123def456
 
 # Use custom config file location
 python3 automation-hue-bridge.py --config /path/to/config.json
@@ -409,9 +409,9 @@ python3 automation-hue-bridge.py --help
 Automation files are saved with the format: `{BridgeName}-{BridgeID}-automations.json`
 
 Examples:
-- `Detsch_OG-ecb5faa015bb-automations.json`
-- `Hue_Bridge-c42996c4e528-automations.json`
-- `Detsch_EG-001788b3e355-automations.json`
+- `Bridge_Office-abc123def456-automations.json`
+- `Hue_Bridge-mno345pqr678-automations.json`
+- `Bridge_Living-xyz789ghi012-automations.json`
 
 **Automation Resources Captured:**
 
@@ -449,11 +449,11 @@ Examples:
 ```json
 {
   "bridge_info": {
-    "ip": "192.168.188.134",
+    "ip": "192.168.1.100",
     "captured_at": "2025-11-12T13:04:35.123456",
     "config": {
       "bridge_id": "ecb5fafffea015bb",
-      "name": "Detsch_OG",
+      "name": "Bridge_Office",
       "model_id": "BSB002",
       "sw_version": "1.71.2071026000"
     }
@@ -477,13 +477,13 @@ Examples:
 
 Captured data from 3 bridge(s):
 
-Bridge: Detsch_OG (ecb5faa015bb)
+Bridge: Bridge_Office (abc123def456)
    📅 Smart Scenes: 6
    🤖 Behavior Instances: 8 (8 enabled)
    📜 Behavior Scripts: 13
    📍 Geofence Clients: 0
 
-Bridge: Detsch_EG (001788b3e355)
+Bridge: Bridge_Living (xyz789ghi012)
    📅 Smart Scenes: 2
    🤖 Behavior Instances: 18 (14 enabled)
    📜 Behavior Scripts: 13
@@ -500,11 +500,11 @@ Since automation files are saved as well-structured JSON, you can query them dir
 
 ```bash
 # View smart scene names
-cat bridges/automations/Detsch_OG-ecb5faa015bb-automations.json | \
+cat bridges/automations/Bridge_Office-abc123def456-automations.json | \
   jq '.automations.smart_scenes.items[] | .metadata.name'
 
 # Find enabled behavior instances
-cat bridges/automations/Detsch_OG-ecb5faa015bb-automations.json | \
+cat bridges/automations/Bridge_Office-abc123def456-automations.json | \
   jq '.automations.behavior_instances.items[] | select(.enabled == true) | .metadata.name'
 
 # Count all automations across bridges
@@ -517,7 +517,7 @@ cat bridges/automations/*.json | \
   jq '.automations.smart_scenes.items[] | select(.metadata.name | contains("Wake")) | {name: .metadata.name, id: .id}'
 
 # List behavior scripts available
-cat bridges/automations/Detsch_OG-ecb5faa015bb-automations.json | \
+cat bridges/automations/Bridge_Office-abc123def456-automations.json | \
   jq '.automations.behavior_scripts.items[] | .metadata.name'
 ```
 
@@ -559,7 +559,7 @@ python3 query-hue-automation.py --name "*Nacht*"
 python3 query-hue-automation.py --name "*Wake*"
 
 # Query specific bridge
-python3 query-hue-automation.py --bridge ecb5faa015bb
+python3 query-hue-automation.py --bridge abc123def456
 
 # Summary across all bridges
 python3 query-hue-automation.py --summary
@@ -581,7 +581,7 @@ python3 query-hue-automation.py --help
 | `--type TYPE` | Filter by automation type | `smart_scenes`, `behavior_instances`, `behavior_scripts`, `geofence_clients`, `geolocation` |
 | `--name PATTERN` | Filter by name (supports wildcards) | `*Nacht*`, `*Wake*`, `*Licht*` |
 | `--state STATE` | Filter by state (behavior_instances only) | `enabled`, `disabled`, `running`, `errored` |
-| `--bridge ID` | Query specific bridge | `ecb5faa015bb` |
+| `--bridge ID` | Query specific bridge | `abc123def456` |
 
 **Automation Types:**
 
@@ -609,7 +609,7 @@ python3 query-hue-automation.py --help
 Query Results
 ================================================================================
 
-Bridge: Detsch_EG (001788b3e355)
+Bridge: Bridge_Living (xyz789ghi012)
 --------------------------------------------------------------------------------
 
 BEHAVIOR INSTANCES (14):
@@ -620,7 +620,7 @@ BEHAVIOR INSTANCES (14):
   ✓ Dunja Aufstehen [running] - fab4e499...
   ...
 
-Bridge: Detsch_OG (ecb5faa015bb)
+Bridge: Bridge_Office (abc123def456)
 --------------------------------------------------------------------------------
 
 BEHAVIOR INSTANCES (3):
@@ -636,12 +636,12 @@ BEHAVIOR INSTANCES (3):
 Query Summary
 ======================================================================
 
-Bridge: Detsch_EG (001788b3e355)
+Bridge: Bridge_Living (xyz789ghi012)
   Smart Scenes: 2
   Behavior Instances: 18 (14 enabled)
   Behavior Scripts: 13
 
-Bridge: Detsch_OG (ecb5faa015bb)
+Bridge: Bridge_Office (abc123def456)
   Smart Scenes: 6
   Behavior Instances: 8 (8 enabled)
   Behavior Scripts: 13
@@ -660,7 +660,7 @@ Total Across All Bridges:
 Detailed Query Results
 ================================================================================
 
-Bridge: Detsch_OG (ecb5faa015bb)
+Bridge: Bridge_Office (abc123def456)
 --------------------------------------------------------------------------------
 
 BEHAVIOR INSTANCES:
@@ -713,7 +713,7 @@ cat /home/baste/HA/aiohue/bridges/config.json
 python3 discover-hue-bridges.py --json > bridges.json
 
 # Check if a specific bridge is online
-BRIDGE_IP="192.168.188.134"
+BRIDGE_IP="192.168.1.100"
 python3 discover-hue-bridges.py --json | jq -e ".bridges[] | select(.ip == \"$BRIDGE_IP\")" && echo "Bridge online" || echo "Bridge offline"
 ```
 
