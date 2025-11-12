@@ -494,23 +494,90 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
 
                                             entries_deleted = 0
 
-                                            # Helper function to parse German date format
-                                            def parse_german_date(text):
-                                                """Extract and parse date from German format like 'Zuletzt verwendet am 01.11.21, 22:23'"""
+                                            # Helper function to parse portal date format (German or English)
+                                            def parse_portal_date(text):
+                                                """
+                                                Extract and parse date from portal format.
+                                                Supports both German and English formats:
+                                                - German: 'Zuletzt verwendet am 01.11.21, 22:23'
+                                                - English: 'Last used on November 12, 2025, 10:36'
+                                                - English: 'Last used on Nov 12, 2025, 10:36'
+                                                - English short: 'Last used on 11/12/25, 10:36'
+                                                """
                                                 import re
                                                 from datetime import datetime
 
-                                                # Look for pattern: "Zuletzt verwendet am DD.MM.YY, HH:MM"
-                                                match = re.search(r'Zuletzt verwendet am (\d{2})\.(\d{2})\.(\d{2}), (\d{2}):(\d{2})', text)
-                                                if match:
-                                                    day, month, year, hour, minute = match.groups()
-                                                    # Convert 2-digit year to 4-digit (21 -> 2021, 25 -> 2025)
-                                                    year_full = int(year)
-                                                    if year_full < 50:
-                                                        year_full += 2000
-                                                    else:
-                                                        year_full += 1900
-                                                    return datetime(year_full, int(month), int(day), int(hour), int(minute))
+                                                try:
+                                                    # Pattern 1: German format "Zuletzt verwendet am DD.MM.YY, HH:MM"
+                                                    match = re.search(r'Zuletzt verwendet am (\d{2})\.(\d{2})\.(\d{2}), (\d{2}):(\d{2})', text)
+                                                    if match:
+                                                        day, month, year, hour, minute = match.groups()
+                                                        year_full = int(year)
+                                                        if year_full < 50:
+                                                            year_full += 2000
+                                                        else:
+                                                            year_full += 1900
+                                                        return datetime(year_full, int(month), int(day), int(hour), int(minute))
+
+                                                    # Pattern 2: English with full month name "Last used on November 12, 2025, 10:36"
+                                                    match = re.search(
+                                                        r'Last used on ([A-Za-z]+) (\d{1,2}), (\d{4}), (\d{1,2}):(\d{2})',
+                                                        text
+                                                    )
+                                                    if match:
+                                                        month_name, day, year, hour, minute = match.groups()
+                                                        # Parse month name
+                                                        month_map = {
+                                                            'january': 1, 'february': 2, 'march': 3, 'april': 4,
+                                                            'may': 5, 'june': 6, 'july': 7, 'august': 8,
+                                                            'september': 9, 'october': 10, 'november': 11, 'december': 12,
+                                                            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+                                                            'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                                                            'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                                                        }
+                                                        month = month_map.get(month_name.lower())
+                                                        if month:
+                                                            return datetime(int(year), month, int(day), int(hour), int(minute))
+
+                                                    # Pattern 3: English short date "Last used on 11/12/25, 10:36" (MM/DD/YY)
+                                                    match = re.search(r'Last used on (\d{1,2})/(\d{1,2})/(\d{2}), (\d{1,2}):(\d{2})', text)
+                                                    if match:
+                                                        month, day, year, hour, minute = match.groups()
+                                                        year_full = int(year)
+                                                        if year_full < 50:
+                                                            year_full += 2000
+                                                        else:
+                                                            year_full += 1900
+                                                        return datetime(year_full, int(month), int(day), int(hour), int(minute))
+
+                                                    # Pattern 4: English with 2-digit year "Last used on Nov 12, 25, 10:36"
+                                                    match = re.search(
+                                                        r'Last used on ([A-Za-z]+) (\d{1,2}), (\d{2}), (\d{1,2}):(\d{2})',
+                                                        text
+                                                    )
+                                                    if match:
+                                                        month_name, day, year, hour, minute = match.groups()
+                                                        month_map = {
+                                                            'january': 1, 'february': 2, 'march': 3, 'april': 4,
+                                                            'may': 5, 'june': 6, 'july': 7, 'august': 8,
+                                                            'september': 9, 'october': 10, 'november': 11, 'december': 12,
+                                                            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+                                                            'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                                                            'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                                                        }
+                                                        month = month_map.get(month_name.lower())
+                                                        if month:
+                                                            year_full = int(year)
+                                                            if year_full < 50:
+                                                                year_full += 2000
+                                                            else:
+                                                                year_full += 1900
+                                                            return datetime(year_full, month, int(day), int(hour), int(minute))
+
+                                                except Exception:
+                                                    # Avoid raising on unexpected formats
+                                                    pass
+
                                                 return None
 
                                             # Parse expected date from JSON
@@ -553,8 +620,8 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
 
                                                             # Check if this has "Zuletzt verwendet" in description
                                                             if "Zuletzt verwendet" in desc_text or "Last used" in desc_text:
-                                                                # Parse the date from the page
-                                                                page_date = parse_german_date(desc_text)
+                                                                # Parse the date from the page (supports German and English)
+                                                                page_date = parse_portal_date(desc_text)
 
                                                                 # Match by date (must match within 2 hour tolerance for timezone differences)
                                                                 date_matches = False
@@ -614,7 +681,14 @@ def list_or_delete_credentials(email, password, credential_names=None, detailed_
                                                                     else:
                                                                         print(f"      ⚠️  Delete button not found for this entry")
                                                                 else:
-                                                                    print(f"      ⏭️  Skipping: Date doesn't match (page: {page_date}, expected: {expected_date})")
+                                                                    # Date didn't match or couldn't be parsed
+                                                                    if page_date is None:
+                                                                        print(f"      ⏭️  Skipping: Could not parse date from portal")
+                                                                        print(f"         Description text: {desc_text[:100]}")
+                                                                        print(f"         Expected date: {expected_date}")
+                                                                        print(f"         Please report this format for future support")
+                                                                    else:
+                                                                        print(f"      ⏭️  Skipping: Date doesn't match (page: {page_date}, expected: {expected_date})")
                                                     except Exception as e:
                                                         # Skip this card, try next
                                                         continue
