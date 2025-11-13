@@ -772,7 +772,7 @@ class SceneValidator(hass.Hass):
         self.load_inventories()
         return {"status": "ok", "inventories_loaded": len(self.inventories)}
 
-    async def should_validate_scene(self, scene_entity, scene_uid):
+    def should_validate_scene(self, scene_entity, scene_uid):
         """
         Determine if scene should be validated based on filtering configuration.
 
@@ -792,7 +792,7 @@ class SceneValidator(hass.Hass):
 
         # Priority 1: Check label (explicit opt-in)
         if self.use_labels:
-            entity_labels = await self.get_state(scene_entity, attribute='labels')
+            entity_labels = self.get_state(scene_entity, attribute='labels')
             if entity_labels and self.label_name in entity_labels:
                 self.log(f"Scene {scene_entity} has label '{self.label_name}' → VALIDATE", level="DEBUG")
                 return True
@@ -808,14 +808,14 @@ class SceneValidator(hass.Hass):
         # Priority 2: Check exclusion patterns (explicit opt-out)
         if self.excluded_patterns:
             for pattern in self.excluded_patterns:
-                if re.match(pattern, scene_name):
+                if re.fullmatch(pattern, scene_name):
                     self.log(f"Scene '{scene_name}' matches exclusion pattern '{pattern}' → SKIP", level="DEBUG")
                     return False
 
         # Priority 3: Check inclusion patterns (systematic matching)
         if self.validated_patterns:
             for pattern in self.validated_patterns:
-                if re.match(pattern, scene_name):
+                if re.fullmatch(pattern, scene_name):
                     self.log(f"Scene '{scene_name}' matches pattern '{pattern}' → VALIDATE", level="DEBUG")
                     return True
             # Patterns defined but no match
@@ -830,7 +830,7 @@ class SceneValidator(hass.Hass):
 
         return self.validate_all_by_default
 
-    async def on_scene_activated(self, event, data, kwargs):
+    def on_scene_activated(self, event, data, kwargs):
         """Handle scene activation event"""
         try:
             # Extract scene entity_id
@@ -841,13 +841,13 @@ class SceneValidator(hass.Hass):
                 return
 
             # Get scene unique_id
-            scene_uid = await self.get_state(scene_entity, attribute='unique_id')
+            scene_uid = self.get_state(scene_entity, attribute='unique_id')
             if not scene_uid:
                 self.log(f"Scene {scene_entity} has no unique_id, skipping validation")
                 return
 
             # Check if scene should be validated (filtering)
-            if not await self.should_validate_scene(scene_entity, scene_uid):
+            if not self.should_validate_scene(scene_entity, scene_uid):
                 self.log(f"Scene {scene_entity} filtered out, skipping validation")
                 return
 
@@ -858,14 +858,14 @@ class SceneValidator(hass.Hass):
                           attributes={'scene': scene_entity, 'level': 1})
 
             # Wait for lights to transition
-            await self.sleep(self.transition_delay)
+            self.sleep(self.transition_delay)
 
             # Create snapshot
-            await self.create_snapshot(scene_entity, scene_uid)
+            self.create_snapshot(scene_entity, scene_uid)
 
             # Level 1: Validate initial activation
             self.log(f"Level 1: Validating initial activation")
-            failures = await self.validate_scene(scene_uid)
+            failures = self.validate_scene(scene_uid)
 
             self.stats['total_validations'] += 1
 
@@ -883,16 +883,16 @@ class SceneValidator(hass.Hass):
             self.stats['failed_level_1'] += 1
 
             if self.notify_on_retry:
-                await self.notify(f"Scene {scene_entity} validation failed, re-triggering", "warning")
+                self.notify(f"Scene {scene_entity} validation failed, re-triggering", "warning")
 
             self.set_state('sensor.scene_validation_status', state='retrying',
                           attributes={'scene': scene_entity, 'level': 2, 'failures': failures})
 
-            await self.call_service('scene/turn_on', entity_id=scene_entity)
-            await self.sleep(self.retry_delay)
+            self.call_service('scene/turn_on', entity_id=scene_entity)
+            self.sleep(self.retry_delay)
 
             # Validate again
-            failures = await self.validate_scene(scene_uid)
+            failures = self.validate_scene(scene_uid)
 
             if not failures:
                 self.log(f"✓ Scene {scene_entity} validated after re-trigger")
@@ -907,16 +907,16 @@ class SceneValidator(hass.Hass):
             self.log(f"Remaining failures: {failures}")
 
             if self.notify_on_fallback:
-                await self.notify(f"Scene {scene_entity} re-trigger failed, using fallback", "warning")
+                self.notify(f"Scene {scene_entity} re-trigger failed, using fallback", "warning")
 
             self.set_state('sensor.scene_validation_status', state='fallback',
                           attributes={'scene': scene_entity, 'level': 3, 'failures': failures})
 
-            await self.apply_scene_via_individual_lights(scene_uid)
-            await self.sleep(self.retry_delay)
+            self.apply_scene_via_individual_lights(scene_uid)
+            self.sleep(self.retry_delay)
 
             # Final validation
-            failures = await self.validate_scene(scene_uid)
+            failures = self.validate_scene(scene_uid)
 
             if not failures:
                 self.log(f"✓ Scene {scene_entity} applied via individual lights")
@@ -941,7 +941,7 @@ class SceneValidator(hass.Hass):
                           attributes={'scene': scene_entity, 'level': 3, 'failures': failures})
 
             if self.notify_on_failure:
-                await self.notify(
+                self.notify(
                     f"CRITICAL: Scene {scene_entity} failed validation after 3 attempts. Failures: {failures}",
                     "error"
                 )
@@ -953,7 +953,7 @@ class SceneValidator(hass.Hass):
             import traceback
             self.error(traceback.format_exc())
 
-    async def create_snapshot(self, scene_entity, scene_uid):
+    def create_snapshot(self, scene_entity, scene_uid):
         """Create snapshot of scene for complex attributes (color, effects)"""
         try:
             # Find scene definition to get light list
@@ -965,7 +965,7 @@ class SceneValidator(hass.Hass):
             light_entities = []
             for action_str in scene['actions']:
                 action = self.parse_action(action_str)
-                light_entity = await self.get_entity_id_from_hue_id(action['target_id'])
+                light_entity = self.get_entity_id_from_hue_id(action['target_id'])
                 if light_entity:
                     light_entities.append(light_entity)
 
@@ -974,7 +974,7 @@ class SceneValidator(hass.Hass):
 
             # Create snapshot
             snapshot_id = f"snapshot_{scene_entity.replace('scene.', '')}"
-            await self.call_service('scene/create',
+            self.call_service('scene/create',
                                    scene_id=snapshot_id,
                                    snapshot_entities=light_entities)
 
@@ -983,7 +983,7 @@ class SceneValidator(hass.Hass):
         except Exception as e:
             self.error(f"Failed to create snapshot: {e}")
 
-    async def validate_scene(self, scene_uid):
+    def validate_scene(self, scene_uid):
         """Validate scene against inventory, return list of failures"""
         scene = self.find_scene(scene_uid)
         if not scene:
@@ -995,13 +995,13 @@ class SceneValidator(hass.Hass):
             action = self.parse_action(action_str)
 
             # Get HA entity_id from Hue resource ID
-            light_entity = await self.get_entity_id_from_hue_id(action['target_id'])
+            light_entity = self.get_entity_id_from_hue_id(action['target_id'])
             if not light_entity:
                 # Light not found in HA (might be disabled or removed)
                 continue
 
             # Get current state
-            current_state = await self.get_state(light_entity)
+            current_state = self.get_state(light_entity)
             if current_state == 'unavailable':
                 failures.append(f"{light_entity}: unavailable")
                 continue
@@ -1017,7 +1017,7 @@ class SceneValidator(hass.Hass):
             # Validate brightness (only if light is on and brightness specified)
             if current_on and 'brightness' in action:
                 target_brightness_pct = action['brightness']
-                current_brightness = await self.get_state(light_entity, attribute='brightness')
+                current_brightness = self.get_state(light_entity, attribute='brightness')
 
                 if current_brightness is None:
                     continue  # Light doesn't support brightness
@@ -1033,7 +1033,7 @@ class SceneValidator(hass.Hass):
 
         return failures
 
-    async def apply_scene_via_individual_lights(self, scene_uid):
+    def apply_scene_via_individual_lights(self, scene_uid):
         """Apply scene by setting each light individually (fallback)"""
         scene = self.find_scene(scene_uid)
         if not scene:
@@ -1047,7 +1047,7 @@ class SceneValidator(hass.Hass):
             action = self.parse_action(action_str)
 
             # Get HA entity_id
-            light_entity = await self.get_entity_id_from_hue_id(action['target_id'])
+            light_entity = self.get_entity_id_from_hue_id(action['target_id'])
             if not light_entity:
                 continue
 
@@ -1056,8 +1056,8 @@ class SceneValidator(hass.Hass):
 
             # On/off
             if not action.get('on', True):
-                await self.call_service('light/turn_off', **service_data)
-                await self.sleep(self.individual_light_delay)
+                self.call_service('light/turn_off', **service_data)
+                self.sleep(self.individual_light_delay)
                 continue
 
             # Brightness (convert 0-100 to brightness_pct)
@@ -1079,10 +1079,10 @@ class SceneValidator(hass.Hass):
 
             # Call light.turn_on
             self.log(f"  Setting {light_entity}: {service_data}", level="DEBUG")
-            await self.call_service('light/turn_on', **service_data)
+            self.call_service('light/turn_on', **service_data)
 
             # Small delay between lights to avoid overwhelming bridge
-            await self.sleep(self.individual_light_delay)
+            self.sleep(self.individual_light_delay)
 
     def find_scene(self, scene_uid):
         """Find scene by unique_id in inventories"""
@@ -1131,10 +1131,10 @@ class SceneValidator(hass.Hass):
 
         return action
 
-    async def get_entity_id_from_hue_id(self, hue_resource_id):
+    def get_entity_id_from_hue_id(self, hue_resource_id):
         """Map Hue resource ID to HA entity_id via unique_id"""
         # Get all light entities
-        entities = await self.get_state('light', attribute='all')
+        entities = self.get_state('light')
 
         for entity_id in entities.keys():
             if not entity_id.startswith('light.'):
@@ -1142,7 +1142,7 @@ class SceneValidator(hass.Hass):
 
             # Query unique_id directly from entity registry via get_state
             # unique_id is not in state attributes, must query separately
-            unique_id = await self.get_state(entity_id, attribute='unique_id')
+            unique_id = self.get_state(entity_id, attribute='unique_id')
 
             # Check if this entity matches the Hue resource ID
             if unique_id == hue_resource_id:
@@ -1150,15 +1150,15 @@ class SceneValidator(hass.Hass):
 
         return None
 
-    async def notify(self, message, level="info"):
+    def notify(self, message, level="info"):
         """Send notification"""
         if self.notification_target == 'persistent_notification':
-            await self.call_service('persistent_notification/create',
+            self.call_service('persistent_notification/create',
                                    title="Scene Validation",
                                    message=message,
                                    notification_id=f"scene_validation_{level}")
         else:
-            await self.call_service(self.notification_target,
+            self.call_service(self.notification_target,
                                    title="Scene Validation",
                                    message=message)
 
