@@ -1,0 +1,7 @@
+Gefundene Daten-Quellen
+
+In Home Assistant:
+  - /homeassistant/.storage/core.config_entries - Bridge Konfigurationen (2 Bridges gefunden)
+  - /homeassistant/.storage/core.device_registry - Geräte-Metadaten
+  - /homeassistant/.storage/core.entity_registry - Entity Konfigurationen (522 Hue Entities)
+  - API Endpoint /api/states - Live-Zustände aller Entities
