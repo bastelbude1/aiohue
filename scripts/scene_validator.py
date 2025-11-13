@@ -518,45 +518,58 @@ class SceneValidator(hass.Hass):
         Returns:
             True if all lights match, False otherwise
         """
-        actions = scene_data.get('actions', [])
+        try:
+            actions = scene_data.get('actions', [])
 
-        if not actions:
-            self.log(f"Scene {scene_entity} has no actions", level="WARNING")
+            if not actions:
+                self.log(f"Scene {scene_entity} has no actions", level="WARNING")
+                return False
+
+            # Check if actions are string representations (inventory format issue)
+            if actions and isinstance(actions[0], str):
+                self.log("Actions stored as strings - skipping validation, will re-trigger", level="WARNING")
+                return False
+
+            all_match = True
+
+            for action in actions:
+                target = action.get('target', {})
+                rid = target.get('rid')
+
+                if not rid:
+                    continue
+
+                # Map Hue resource ID to HA entity_id
+                entity_id = self.get_entity_id_from_hue_id(rid)
+
+                if not entity_id:
+                    self.log(f"Could not map Hue ID {rid} to entity_id", level="WARNING")
+                    all_match = False
+                    continue
+
+                # Get expected state from action
+                expected = action.get('action', {})
+
+                # Get actual state from HA
+                actual_state = self.get_state(entity_id, attribute="all")
+
+                if not actual_state:
+                    self.log(f"Could not get state for {entity_id}", level="WARNING")
+                    all_match = False
+                    continue
+
+                # Compare states
+                if not self.compare_light_states(entity_id, expected, actual_state):
+                    all_match = False
+
+            return all_match
+
+        except AttributeError as e:
+            self.log(f"Inventory format issue (actions are strings): {e}", level="WARNING")
             return False
-
-        all_match = True
-
-        for action in actions:
-            target = action.get('target', {})
-            rid = target.get('rid')
-
-            if not rid:
-                continue
-
-            # Map Hue resource ID to HA entity_id
-            entity_id = self.get_entity_id_from_hue_id(rid)
-
-            if not entity_id:
-                self.log(f"Could not map Hue ID {rid} to entity_id", level="WARNING")
-                all_match = False
-                continue
-
-            # Get expected state from action
-            expected = action.get('action', {})
-
-            # Get actual state from HA
-            actual_state = self.get_state(entity_id, attribute="all")
-
-            if not actual_state:
-                self.log(f"Could not get state for {entity_id}", level="WARNING")
-                all_match = False
-                continue
-
-            # Compare states
-            if not self.compare_light_states(entity_id, expected, actual_state):
-                all_match = False
-
-        return all_match
+        except Exception as e:  # noqa: BLE001
+            self.error(f"Error validating scene state: {e}")
+            return False
 
     def compare_light_states(self, entity_id: str, expected: Dict[str, Any],
                             actual_state: Dict[str, Any]) -> bool:
