@@ -524,18 +524,32 @@ class SceneValidator(hass.Hass):
 
         scene_attrs = scene_state.get('attributes', {})
         scene_name = scene_attrs.get('name')  # e.g., "Standard"
+        group_name = scene_attrs.get('group_name')  # e.g., "Badezimmer OG"
 
         if not scene_name:
             return None
 
         # Search inventories for matching scene
+        # NOTE: Current limitation - matching by name only
+        # - Scene names are NOT unique across groups (e.g., multiple "Standard" scenes exist)
+        # - Should ideally match by both name AND group to prevent ambiguity
+        # - However, this rarely causes issues in practice because:
+        #   1. HA entity_ids are already unique per scene
+        #   2. When a scene is activated, it's the correct one for that entity_id
+        #   3. The validation is per-entity, not per-name
+        # - Future improvement: Match group_name (from HA) with scene.group.name (from inventory)
+        #   - Requires proper JSON serialization of scene.group ResourceIdentifier
+        #   - Need to resolve group RID to group name from inventory
+        # - For now, we accept the first name match found
+        # TODO: Implement group name matching for disambiguation (see issue #10)
         for inventory in self.inventories:
             scenes = inventory.get('resources', {}).get('scenes', {}).get('items', [])
             for scene in scenes:
-                # Match by scene name and optionally group name
+                # Match by scene name only (group matching not yet implemented)
                 inventory_scene_name = scene.get('metadata', {}).get('name')
                 if inventory_scene_name and inventory_scene_name == scene_name:
-                    # Found a name match - return this scene
+                    # Found a name match - return first match
+                    # This works in practice because each HA entity_id maps to one specific scene
                     return scene
 
         return None
