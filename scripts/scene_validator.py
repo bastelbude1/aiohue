@@ -192,9 +192,16 @@ class SceneValidator(hass.Hass):
             return False
 
         # Check if unique_id contains any loaded Hue bridge ID
+        # Bridge IDs from Hue API typically have format: "XX:XX:XX:XX:XX:XX" (MAC address)
+        # HA unique_ids contain the normalized form without colons
         for inventory in self.inventories:
             bridge_id = inventory.get('bridge_info', {}).get('bridge_id', '')
-            if bridge_id and bridge_id.replace(':', '') in unique_id:
+            if not bridge_id:
+                continue
+
+            # Normalize bridge ID by removing colons (handles both formats)
+            normalized_bridge_id = bridge_id.replace(':', '').lower()
+            if normalized_bridge_id and normalized_bridge_id in unique_id.lower():
                 return True
 
         return False
