@@ -147,6 +147,29 @@ class SceneValidator(hass.Hass):
             return False
 
         self.log(f"Loaded {len(self.inventories)} inventory file(s)")
+
+        # Check for legacy inventory format (string-formatted actions)
+        legacy_format_detected = False
+        for inventory in self.inventories:
+            scenes = inventory.get('resources', {}).get('scenes', {}).get('items', [])
+            for scene in scenes:
+                actions = scene.get('actions', [])
+                if actions and isinstance(actions, list) and len(actions) > 0:
+                    # Check if first action is a string (legacy format)
+                    if isinstance(actions[0], str):
+                        legacy_format_detected = True
+                        break
+            if legacy_format_detected:
+                break
+
+        if legacy_format_detected:
+            self.log(
+                "WARNING: Legacy inventory format detected (string-formatted actions). "
+                "Level 1 validation will be limited. Please regenerate inventories with: "
+                "python3 inventory-hue-bridge.py",
+                level="WARNING"
+            )
+
         return True
 
     def setup_scene_listeners(self):
@@ -501,7 +524,6 @@ class SceneValidator(hass.Hass):
 
         scene_attrs = scene_state.get('attributes', {})
         scene_name = scene_attrs.get('name')  # e.g., "Standard"
-        group_name = scene_attrs.get('group_name')  # e.g., "Badezimmer OG"
 
         if not scene_name:
             return None
