@@ -448,7 +448,7 @@ AppDaemon app that validates scene activations and provides fallback mechanisms.
    - Level 3: Control lights individually as fallback
 
 3. **Entity Mapping**
-   - Maps Hue resource IDs to HA entity_ids
+   - Connects Hue resource IDs to HA entity_ids
    - Uses `unique_id` for stable mapping
    - Survives entity renames
 
@@ -993,7 +993,7 @@ ha addons restart a0d7b954_appdaemon
 
 ### Scenes Not Validated
 
-**Problem:** Validator is running but scenes are skipped.
+**Problem:** Validator is running, but scenes are skipped.
 
 **Solutions:**
 

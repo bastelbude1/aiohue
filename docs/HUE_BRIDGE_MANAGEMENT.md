@@ -372,7 +372,7 @@ python3 inventory-hue-bridge.py [--json] [--bridge BRIDGE_ID] [--output-dir DIR]
 
 **Options:**
 - `--json` - Output in JSON format
-- `--bridge BRIDGE_ID` - Inventory specific bridge only
+- `--bridge BRIDGE_ID` - Inventory for specific bridge only
 - `--output-dir DIR` - Custom output directory (default: `bridges/inventory/`)
 
 **Captured Resources:**
@@ -386,7 +386,7 @@ python3 inventory-hue-bridge.py [--json] [--bridge BRIDGE_ID] [--output-dir DIR]
 - Bridge home configuration
 
 **Output Files:**
-```
+```text
 bridges/inventory/{BridgeName}-{BridgeID}.json
 ```
 
@@ -464,7 +464,7 @@ python3 automation-hue-bridge.py [--json] [--bridge BRIDGE_ID] [--output-dir DIR
 - **Geolocation** - Sun position and location data
 
 **Output Files:**
-```
+```text
 bridges/automations/{BridgeName}-{BridgeID}-automations.json
 ```
 

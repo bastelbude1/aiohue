@@ -137,7 +137,7 @@ This toolkit provides a comprehensive solution for managing Philips Hue bridges 
 
 ### 1. Separation of Concerns
 
-**Hue Management ≠ HA Integration**
+#### Hue Management ≠ HA Integration
 
 - **Hue scripts** operate independently, directly querying bridges
 - **HA scripts** operate via SSH/API, querying HA perspective
@@ -439,19 +439,19 @@ aiohue/
 ### Data File Naming Conventions
 
 **Hue Inventories:**
-```
+```text
 bridges/inventory/{BridgeName}-{BridgeID}.json
 Example: Bridge_EG-001788b3e355.json
 ```
 
 **Hue Automations:**
-```
+```text
 bridges/automations/{BridgeName}-{BridgeID}-automations.json
 Example: Bridge_EG-001788b3e355-automations.json
 ```
 
 **HA Inventories:**
-```
+```text
 bridges/ha_inventory/ha_{BridgeName}-{BridgeID}.json
 Example: ha_Bridge_EG-001788b3e355.json
 ```
