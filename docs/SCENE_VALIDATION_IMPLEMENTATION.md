@@ -1412,7 +1412,7 @@ data:
 ```
 
 #### Test 3: Multiple Light Deviation (Level 2 Recovery)
-```
+```text
 1. Activate scene.wohnzimmer_standard
 2. Immediately change 2-3 lights (brightness or on/off)
 3. Expected: Level 2 recovers
@@ -1420,7 +1420,7 @@ data:
 ```
 
 #### Test 4: Scene Re-trigger Failure (Level 3 Fallback)
-```
+```text
 This is difficult to test without breaking something.
 Options:
 A. Disconnect Hue bridge from network briefly
@@ -1429,21 +1429,21 @@ C. Temporarily disable a light in HA
 ```
 
 #### Test 5: Color Scene Validation
-```
+```text
 1. Activate scene with color (e.g., "Ruhephase" with xy colors)
 2. Verify: Validation passes even with color attributes
 3. Check: Snapshot captured colors correctly
 ```
 
 #### Test 6: Effect Scene Validation
-```
+```text
 1. Activate scene with effects (e.g., "Glowing grins" with fire effect)
 2. Verify: Validation passes (skips effect validation)
 3. Check: Snapshot captured effect state
 ```
 
 #### Test 7: Scene Filtering - Labeled Scene
-```
+```text
 1. Add label "validate_scene" to scene.wohnzimmer_standard via HA UI
 2. Activate scene.wohnzimmer_standard
 3. Expected: Scene is validated
@@ -1452,7 +1452,7 @@ C. Temporarily disable a light in HA
 ```
 
 #### Test 8: Scene Filtering - Pattern Match
-```
+```text
 1. Configure validated_patterns: [".*Standard$"]
 2. Activate scene.kuche_standard
 3. Expected: Scene is validated (matches pattern)
@@ -1461,7 +1461,7 @@ C. Temporarily disable a light in HA
 ```
 
 #### Test 9: Scene Filtering - Excluded Scene
-```
+```text
 1. Configure excluded_patterns: [".*Test.*"]
 2. Activate scene.wohnzimmer_test_new_colors
 3. Expected: Scene is NOT validated
@@ -1470,7 +1470,7 @@ C. Temporarily disable a light in HA
 ```
 
 #### Test 10: Scene Filtering - Unmatched Scene
-```
+```text
 1. Configure validated_patterns: [".*Standard$"]
 2. Configure validate_all_by_default: false
 3. Activate scene.party_lights (not matching pattern, no label)
@@ -1480,7 +1480,7 @@ C. Temporarily disable a light in HA
 ```
 
 #### Test 11: Scene Filtering - Priority Order
-```
+```text
 1. Configure:
    - use_labels: true
    - validated_patterns: [".*Standard$"]
@@ -1682,7 +1682,7 @@ docker logs addon_xxxxx_appdaemon | grep "SKIP\|VALIDATE"
 **Symptoms**: Scene is being validated but shouldn't be (e.g., party lights, test scenes)
 
 **Possible Causes**:
-1. Scene has label by mistake
+1. Scene labeled unintentionally
 2. Scene name matches pattern unintentionally
 3. validate_all_by_default is true
 
@@ -1823,4 +1823,4 @@ transition_delay: 8  # Increase from 5 (for slow lights)
 
 ---
 
-*Implementation Guide v1.0 - 2025-11-13*
+<!-- Implementation Guide v1.0 - 2025-11-13 -->
