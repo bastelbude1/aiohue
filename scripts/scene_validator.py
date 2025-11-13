@@ -111,6 +111,33 @@ class SceneValidator(hass.Hass):
         if self.name_patterns:
             self.log(f"Name patterns: {self.name_patterns}")
 
+    def _is_legacy_action_format(self, actions: List[Any]) -> bool:
+        """
+        Check if actions use legacy string format.
+
+        Args:
+            actions: List of action objects or strings
+
+        Returns:
+            True if actions are in legacy string format, False otherwise
+        """
+        return len(actions) > 0 and isinstance(actions[0], str)
+
+    def _has_legacy_inventory_format(self) -> bool:
+        """
+        Check if any inventory uses legacy string-formatted actions.
+
+        Returns:
+            True if any scene has string-formatted actions, False otherwise
+        """
+        for inventory in self.inventories:
+            scenes = inventory.get('resources', {}).get('scenes', {}).get('items', [])
+            for scene in scenes:
+                actions = scene.get('actions', [])
+                if self._is_legacy_action_format(actions):
+                    return True
+        return False
+
     def load_inventories(self) -> bool:
         """
         Load Hue bridge inventories from filesystem.
@@ -149,20 +176,7 @@ class SceneValidator(hass.Hass):
         self.log(f"Loaded {len(self.inventories)} inventory file(s)")
 
         # Check for legacy inventory format (string-formatted actions)
-        legacy_format_detected = False
-        for inventory in self.inventories:
-            scenes = inventory.get('resources', {}).get('scenes', {}).get('items', [])
-            for scene in scenes:
-                actions = scene.get('actions', [])
-                if actions and isinstance(actions, list) and len(actions) > 0:
-                    # Check if first action is a string (legacy format)
-                    if isinstance(actions[0], str):
-                        legacy_format_detected = True
-                        break
-            if legacy_format_detected:
-                break
-
-        if legacy_format_detected:
+        if self._has_legacy_inventory_format():
             self.log(
                 "WARNING: Legacy inventory format detected (string-formatted actions). "
                 "Level 1 validation will be limited. Please regenerate inventories with: "
@@ -473,7 +487,7 @@ class SceneValidator(hass.Hass):
 
             # Check if validation is possible (inventory format)
             actions = scene_data.get('actions', [])
-            actions_are_strings = actions and isinstance(actions[0], str)
+            actions_are_strings = self._is_legacy_action_format(actions)
 
             if actions_are_strings:
                 # Validation impossible due to inventory format
@@ -565,18 +579,18 @@ class SceneValidator(hass.Hass):
         Returns:
             True if all lights match, False otherwise
         """
+        actions = scene_data.get('actions', [])
+
+        if not actions:
+            self.log(f"Scene {scene_entity} has no actions", level="WARNING")
+            return False
+
+        # Check if actions are string representations (inventory format issue)
+        if self._is_legacy_action_format(actions):
+            self.log("Actions stored as strings - skipping validation, will re-trigger", level="WARNING")
+            return False
+
         try:
-            actions = scene_data.get('actions', [])
-
-            if not actions:
-                self.log(f"Scene {scene_entity} has no actions", level="WARNING")
-                return False
-
-            # Check if actions are string representations (inventory format issue)
-            if actions and isinstance(actions[0], str):
-                self.log("Actions stored as strings - skipping validation, will re-trigger", level="WARNING")
-                return False
-
             all_match = True
 
             for action in actions:
@@ -609,15 +623,14 @@ class SceneValidator(hass.Hass):
                 if not self.compare_light_states(entity_id, expected, actual_state):
                     all_match = False
 
+            return all_match
+
         except AttributeError as e:
             self.log(f"Inventory format issue (actions are strings): {e}", level="WARNING")
             return False
         except Exception as e:  # noqa: BLE001
             self.error(f"Error validating scene state: {e}")
             return False
-        else:
-            # Successfully validated all actions - return result
-            return all_match
 
     def compare_light_states(self, entity_id: str, expected: Dict[str, Any],
                             actual_state: Dict[str, Any]) -> bool:
@@ -711,7 +724,7 @@ class SceneValidator(hass.Hass):
             return False
 
         # Check if actions are string representations (inventory format issue)
-        if actions and isinstance(actions[0], str):
+        if self._is_legacy_action_format(actions):
             self.log("Cannot control lights - actions stored as strings (inventory format issue)", level="WARNING")
             return False
 
