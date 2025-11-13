@@ -58,8 +58,7 @@ EOF
 # 2. Sync inventories to HA server
 ./sync-inventory-to-ha.sh
 
-# 3. Export HA perspective
-export HA_SSH_HOST=192.168.1.100
+# 3. Export HA perspective (reads from ha_config.json)
 python3 export-ha-hue-inventory.py
 
 # 4. Deploy scene validator to AppDaemon (see docs)

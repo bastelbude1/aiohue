@@ -65,12 +65,37 @@ SSH_KEY = Path(__file__).parent.parent.parent / "homeassistant_ssh_key"
 SSH_USER = os.getenv("HA_SSH_USER", "hassio")
 
 
+def _load_ha_config() -> Dict[str, str]:
+    """
+    Load HA configuration from ha_config.json.
+
+    Returns:
+        Dict with ha_host, ha_user, ha_ssh_key, ha_inventory_dir (empty if file not found)
+    """
+    config_file = Path(__file__).parent.parent / "ha_config.json"
+
+    if config_file.exists():
+        try:
+            with open(config_file) as f:
+                config = json.load(f)
+                return {
+                    "ha_host": config.get("ha_host", ""),
+                    "ha_user": config.get("ha_user", "hassio"),
+                    "ha_ssh_key": config.get("ha_ssh_key", ""),
+                    "ha_inventory_dir": config.get("ha_inventory_dir", "/homeassistant/hue_inventories")
+                }
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    return {}
+
+
 def _validate_ssh_host(host: str) -> str:
     """
     Validate SSH host to prevent command injection.
 
     Args:
-        host: Hostname or IP address from environment
+        host: Hostname or IP address
 
     Returns:
         Validated host string
@@ -79,8 +104,13 @@ def _validate_ssh_host(host: str) -> str:
         SystemExit: If host is invalid or not set
     """
     if not host:
-        print("Error: HA_SSH_HOST environment variable must be set", file=sys.stderr)
-        print("Example: export HA_SSH_HOST=192.168.1.100", file=sys.stderr)
+        print("Error: HA SSH host not configured", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Please configure via ha_config.json:", file=sys.stderr)
+        print('  {"ha_host": "192.168.1.100", ...}', file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Or set environment variable:", file=sys.stderr)
+        print("  export HA_SSH_HOST=192.168.1.100", file=sys.stderr)
         sys.exit(1)
 
     # Allow only safe characters: alphanumeric, underscore, dots, hyphens, brackets (IPv6), colons (IPv6/port)
@@ -92,7 +122,11 @@ def _validate_ssh_host(host: str) -> str:
     return host
 
 
-SSH_HOST = _validate_ssh_host(os.getenv("HA_SSH_HOST", ""))
+# Load configuration from ha_config.json (preferred) or environment variables (fallback)
+_ha_config = _load_ha_config()
+SSH_HOST = _validate_ssh_host(_ha_config.get("ha_host") or os.getenv("HA_SSH_HOST", ""))
+if _ha_config.get("ha_user"):
+    SSH_USER = _ha_config["ha_user"]
 
 
 def parse_arguments():

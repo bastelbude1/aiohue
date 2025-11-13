@@ -109,8 +109,8 @@ Export Home Assistant's view of Hue entities:
 ```bash
 cd scripts
 
-# Set SSH host (if not in ha_config.json)
-export HA_SSH_HOST=192.168.1.100
+# Reads SSH configuration from ha_config.json
+# (or falls back to HA_SSH_HOST environment variable)
 
 # Export all bridges
 python3 export-ha-hue-inventory.py
@@ -361,8 +361,18 @@ python3 export-ha-hue-inventory.py --output-dir /path/to/output
 }
 ```
 
-**Environment Variables:**
-- `HA_SSH_HOST` - Home Assistant IP/hostname (required)
+**Configuration:**
+
+Reads from `ha_config.json` (preferred):
+```json
+{
+  "ha_host": "192.168.1.100",
+  "ha_user": "hassio"
+}
+```
+
+Or environment variables (fallback):
+- `HA_SSH_HOST` - Home Assistant IP/hostname
 - `HA_SSH_USER` - SSH username (default: `hassio`)
 
 **Exit Codes:**
@@ -741,11 +751,11 @@ scene_validator:
 
 **For Scripts:**
 
-```bash
-# Required for export-ha-hue-inventory.py
-export HA_SSH_HOST=192.168.1.100
+Both scripts read from `ha_config.json` first. Environment variables are only needed as fallback if config file is not present.
 
-# Optional
+```bash
+# Optional fallback (if not using ha_config.json)
+export HA_SSH_HOST=192.168.1.100
 export HA_SSH_USER=hassio
 ```
 
