@@ -320,7 +320,7 @@ async def inventory_bridge(bridge_ip: str, username: str, client_key: Optional[s
                         "type": str(scene.type) if hasattr(scene, 'type') else None,
                         "metadata": scene.metadata.__dict__ if hasattr(scene, 'metadata') and scene.metadata is not None else None,
                         "group": str(scene.group) if hasattr(scene, 'group') and scene.group is not None else None,
-                        "actions": [str(a) for a in scene.actions] if hasattr(scene, 'actions') and scene.actions is not None else []
+                        "actions": scene.actions if hasattr(scene, 'actions') and scene.actions is not None else []
                     }
                     for scene in scenes
                 ]
