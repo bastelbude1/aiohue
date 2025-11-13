@@ -1,292 +1,261 @@
-# Philips Hue Bridge Management Scripts
+# Philips Hue Bridge Management & Home Assistant Integration
 
-A comprehensive Python toolkit for managing multiple Philips Hue bridges using the V2 API via the `aiohue` library.
+A comprehensive toolkit for managing Philips Hue bridges and integrating them with Home Assistant, featuring advanced scene validation, inventory management, and automation monitoring.
 
-## Features
+## Overview
 
-- **Bridge Discovery**: Automatically find Hue bridges on your network and detect API version support
-- **V2 API Registration**: Register applications with bridges using modern V2 credentials (username + client_key)
-- **Comprehensive Inventory**: Capture complete bridge inventories including devices, lights, scenes, zones, rooms, and sensors
-- **Automation Management**: Extract and analyze bridge automations (smart scenes, behavior instances, scripts, geofence)
-- **Powerful Query Tools**: Filter and search inventory and automation data with multiple output formats
-- **Multi-Bridge Support**: Manage multiple bridges simultaneously with organized data storage
+This project provides two complementary subsystems:
 
-## Requirements
+### 1. Hue Bridge Management (Direct API)
+Interact directly with Hue bridges using the aiohue library and Philips Hue API v2:
+- **Discover bridges** on your network automatically
+- **Register V2 API credentials** (username + client_key)
+- **Capture complete inventories** (devices, lights, scenes, zones, sensors)
+- **Export automation data** (smart scenes, behavior instances, scripts)
+- **Query and filter** data with powerful search tools
 
-- Python 3.8+
-- Virtual environment with `aiohue` library (4.8.0+)
-- Network access to Philips Hue bridges
+### 2. Home Assistant Integration
+Advanced integration features for reliability and monitoring:
+- **Scene validation system** with 3-level escalation and fallback
+- **HA inventory export** - Export Home Assistant's perspective of Hue entities
+- **Inventory sync** - Keep bridge inventories available on HA server
+- **Entity mapping** - Map between Hue resource IDs and HA entity_ids
+- **Circuit breaker** - Automatic kill switch for runaway automations
+- **Rate limiting** - Protect against rapid-fire validations
 
 ## Quick Start
 
-### 1. Activate Virtual Environment
+### Hue Bridge Management
 
 ```bash
-cd path/to/aiohue  # Replace with your project directory
-source path/to/venv/bin/activate  # Activate your virtual environment
-```
-
-### 2. Discover Bridges
-
-```bash
+# 1. Discover bridges on your network
 cd scripts
 python3 discover-hue-bridges.py
-```
 
-This will scan your network and save bridge information to `bridges/config.json`.
-
-### 3. Register with Bridges
-
-```bash
+# 2. Register with bridges (press button when prompted)
 python3 register-hue-user.py
-```
 
-Press the link button on each bridge when prompted. This adds V2 credentials to `bridges/config.json`.
-
-### 4. Capture Inventory
-
-```bash
+# 3. Capture bridge inventory
 python3 inventory-hue-bridge.py
+
+# 4. Query data
+python3 query-hue-inventory.py --type lights --name "*Kitchen*"
 ```
 
-Saves device inventory to `bridges/inventory/{BridgeName}-{BridgeID}.json`.
-
-### 5. Capture Automations
+### Home Assistant Integration
 
 ```bash
-python3 automation-hue-bridge.py
+# 1. Create configuration file
+cat > ha_config.json <<EOF
+{
+  "ha_host": "192.168.1.100",
+  "ha_user": "hassio",
+  "ha_ssh_key": "../homeassistant_ssh_key",
+  "ha_inventory_dir": "/homeassistant/hue_inventories"
+}
+EOF
+
+# 2. Sync inventories to HA server
+./sync-inventory-to-ha.sh
+
+# 3. Export HA perspective
+export HA_SSH_HOST=192.168.1.100
+python3 export-ha-hue-inventory.py
+
+# 4. Deploy scene validator to AppDaemon (see docs)
 ```
 
-Saves automation data to `bridges/automations/{BridgeName}-{BridgeID}-automations.json`.
+## Features
 
-### 6. Query Data
+### Hue Bridge Management
+- ✅ Automatic bridge discovery (mDNS/SSDP)
+- ✅ V2 API registration with credential management
+- ✅ Complete inventory capture (devices, lights, scenes, zones, sensors)
+- ✅ Automation export (smart scenes, behavior instances, scripts)
+- ✅ Powerful query tools with filtering and pattern matching
+- ✅ Multi-bridge support with organized data storage
+- ✅ JSON and human-readable output formats
 
-```bash
-# Search inventory
-python3 query-hue-inventory.py --name "*Kitchen*" --type lights
+### Home Assistant Integration
+- ✅ Scene validation with 3-level escalation
+- ✅ Entity registry mapping (Hue resource ID ↔ HA entity_id)
+- ✅ HA inventory export (SSH + API)
+- ✅ Inventory sync to HA server
+- ✅ Circuit breaker kill switch
+- ✅ Per-scene and global rate limiting
+- ✅ Flexible scene filtering (labels, patterns, UIDs)
+- ✅ AppDaemon 4 integration
 
-# Search automations
-python3 query-hue-automation.py --state enabled --type behavior_instances
-```
+## Documentation
+
+### Core Documentation
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture, data flow, and design decisions
+- **[HUE_BRIDGE_MANAGEMENT.md](docs/HUE_BRIDGE_MANAGEMENT.md)** - Complete guide for Hue bridge management
+- **[HOME_ASSISTANT_INTEGRATION.md](docs/HOME_ASSISTANT_INTEGRATION.md)** - HA integration features and setup
+
+### Additional Documentation
+- **[SCRIPTS.md](docs/SCRIPTS.md)** - Detailed script reference
+- **[SCENE_VALIDATION_IMPLEMENTATION.md](docs/SCENE_VALIDATION_IMPLEMENTATION.md)** - Scene validation system guide
+- **[SCENE_VALIDATION_ANALYSIS.md](docs/SCENE_VALIDATION_ANALYSIS.md)** - Analysis of scene filtering approaches
+- **[AUTOMATION_API_QUICK_REFERENCE.md](docs/AUTOMATION_API_QUICK_REFERENCE.md)** - Hue API v2 automation reference
+- **[HUE_AUTOMATION_RESOURCES.md](docs/HUE_AUTOMATION_RESOURCES.md)** - Deep dive into automation resources
 
 ## Project Structure
 
 ```text
 aiohue/
-├── README.md                                    # This file
-├── docs/
-│   ├── SCRIPTS.md                              # Detailed script documentation
-│   ├── AUTOMATION_API_QUICK_REFERENCE.md       # V2 API automation reference
-│   └── HUE_AUTOMATION_RESOURCES.md             # Detailed automation resource docs
-├── scripts/
-│   ├── discover-hue-bridges.py                 # Bridge discovery
-│   ├── register-hue-user.py                    # V2 API registration
-│   ├── inventory-hue-bridge.py                 # Capture device inventory
-│   ├── automation-hue-bridge.py                # Capture automation data
-│   ├── query-hue-inventory.py                  # Query inventory with filters
-│   └── query-hue-automation.py                 # Query automations with filters
-└── bridges/                                     # Generated data (not in git)
-    ├── config.json                              # Bridge credentials
-    ├── inventory/                               # Device inventories
-    │   ├── {BridgeName}-{BridgeID}.json
-    │   └── ...
-    └── automations/                             # Automation data
-        ├── {BridgeName}-{BridgeID}-automations.json
-        └── ...
+├── README.md                          # This file - Quick overview
+├── LICENSE
+├── .gitignore                         # Excludes all sensitive JSON files
+│
+├── docs/                              # Documentation
+│   ├── ARCHITECTURE.md                # System architecture and design
+│   ├── HUE_BRIDGE_MANAGEMENT.md       # Hue bridge management guide
+│   ├── HOME_ASSISTANT_INTEGRATION.md  # HA integration guide
+│   ├── SCRIPTS.md                     # Script reference
+│   └── ...                            # Additional documentation
+│
+├── scripts/                           # Python scripts
+│   ├── # Hue Bridge Management
+│   ├── discover-hue-bridges.py        # Discover bridges on network
+│   ├── register-hue-user.py           # Register V2 API credentials
+│   ├── inventory-hue-bridge.py        # Capture device inventories
+│   ├── automation-hue-bridge.py       # Capture automation data
+│   ├── query-hue-inventory.py         # Query inventory data
+│   ├── query-hue-automation.py        # Query automation data
+│   │
+│   ├── # Home Assistant Integration
+│   ├── export-ha-hue-inventory.py     # Export HA entity registry
+│   └── sync-inventory-to-ha.sh        # Sync inventories to HA
+│
+├── bridges/                           # Generated data (excluded from git)
+│   ├── config.json                    # Bridge credentials
+│   ├── inventory/                     # Hue perspective inventories
+│   ├── automations/                   # Hue automation data
+│   └── ha_inventory/                  # HA perspective inventories
+│
+├── ha_config.json                     # Local HA SSH config (excluded)
+└── ha_config.example                  # Example config (template)
 ```
 
-## Documentation
+## Requirements
 
-- **[docs/SCRIPTS.md](docs/SCRIPTS.md)** - Complete script documentation with usage examples
-- **[docs/AUTOMATION_API_QUICK_REFERENCE.md](docs/AUTOMATION_API_QUICK_REFERENCE.md)** - V2 API automation endpoints and examples
-- **[docs/HUE_AUTOMATION_RESOURCES.md](docs/HUE_AUTOMATION_RESOURCES.md)** - Deep dive into automation resource types
+### Software
+- Python 3.8 or higher
+- aiohue library 4.8.0+
+- Home Assistant 2024.1+ (for HA integration)
+- AppDaemon 4.x (for scene validation)
+- Bash shell (for sync script)
 
-## Key Features
+### Network
+- Local network access to Hue bridges
+- SSH access to Home Assistant server (for HA integration)
 
-### Bridge Discovery & Registration
-
-Automatically discovers bridges on your network and registers V2 API applications:
-
-```bash
-# Discover bridges
-python3 discover-hue-bridges.py
-
-# Register V2 credentials (username + client_key)
-python3 register-hue-user.py
-```
-
-### Comprehensive Inventory Capture
-
-Captures all bridge resources in a structured format:
-
-- **Devices**: All hardware connected to the bridge
-- **Lights**: Individual light controls and capabilities
-- **Scenes**: Pre-configured lighting scenes
-- **Groups**: Zones, rooms, and entertainment areas
-- **Sensors**: Motion sensors, switches, buttons, etc.
-
-Output: `bridges/inventory/{BridgeName}-{BridgeID}.json`
-
-### Automation Data Capture
-
-Extracts automation configurations:
-
-- **Smart Scenes**: Time-based scheduled automations
-- **Behavior Instances**: Active running automations
-- **Behavior Scripts**: Available automation templates
-- **Geofence Clients**: Location-based triggers
-- **Geolocation**: Sun position and location data
-
-Output: `bridges/automations/{BridgeName}-{BridgeID}-automations.json`
-
-### Powerful Query Tools
-
-Filter and search data with flexible options:
-
-```bash
-# Find all lights with "Kitchen" in the name
-python3 query-hue-inventory.py --type lights --name "*Kitchen*"
-
-# Show all enabled automations
-python3 query-hue-automation.py --state enabled
-
-# Get summary statistics
-python3 query-hue-automation.py --summary
-
-# Export to JSON for processing
-python3 query-hue-inventory.py --bridge abc123def456 --json > devices.json
-```
-
-**Filter Options:**
-- `--type` - Filter by resource type
-- `--name` - Pattern matching with wildcards
-- `--state` - Filter by state (on/off, enabled/disabled, brightness)
-- `--bridge` - Query specific bridge
-- `--json` - JSON output
-- `--detailed` - Full attribute display
-- `--summary` - Count statistics
+### Optional
+- Virtual environment (recommended)
+- SSH key for HA access
 
 ## Security
 
-**Important:** All generated JSON files contain sensitive information and are excluded from git via `.gitignore`:
+**All sensitive data is excluded from git:**
 
-- `bridges/config.json` - Contains bridge credentials (username, client_key)
-- `bridges/inventory/*.json` - Device-specific data
-- `bridges/automations/*.json` - Automation-specific data
+```gitignore
+# Credentials and sensitive data
+*.json                    # All bridge and inventory data
+bridges/config.json       # Bridge credentials
+ha_config.json           # Local HA SSH configuration
 
-Only Python scripts and documentation are tracked in version control.
+# SSH keys
+*_ssh_key
+*_ssh_key.pub
+*.pem
 
-## Use Cases
-
-### Home Automation Integration
-
-Use the inventory data to integrate bridges with Home Assistant, Node-RED, or custom automation platforms:
-
-```bash
-# Export all devices to JSON
-python3 query-hue-inventory.py --type devices --json > ha_devices.json
-
-# Get all sensors for integration
-python3 query-hue-inventory.py --type sensors --detailed
+# Generated data directories
+bridges/inventory/
+bridges/automations/
+bridges/ha_inventory/
 ```
 
-### Automation Backup & Analysis
+**Safe to commit:**
+- Python scripts (after sanitization)
+- Documentation files
+- Example configuration files (no real data)
+- .gitignore itself
 
-Back up and analyze existing automations:
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md#security-model) for detailed security model.
 
+## Common Use Cases
+
+### Managing Multiple Hue Bridges
 ```bash
-# Capture current automations
-python3 automation-hue-bridge.py
+# Discover all bridges
+python3 discover-hue-bridges.py
 
-# Review all enabled automations
-python3 query-hue-automation.py --state enabled --detailed
+# Capture inventories from all bridges
+python3 inventory-hue-bridge.py
 
-# Find specific automation
-python3 query-hue-automation.py --name "*Wake*"
-```
-
-### Multi-Bridge Management
-
-Manage multiple bridges with organized data:
-
-```bash
 # Query specific bridge
-python3 query-hue-inventory.py --bridge abc123def456
-
-# Compare bridges
-python3 query-hue-inventory.py --summary
-python3 query-hue-automation.py --summary
+python3 query-hue-inventory.py --bridge abc123def456 --summary
 ```
 
-### Troubleshooting
-
-Find issues with devices or automations:
-
+### Regular Backups
 ```bash
-# Find lights that are on
-python3 query-hue-inventory.py --type lights --state on
+# Capture current state
+python3 inventory-hue-bridge.py --json
+python3 automation-hue-bridge.py --json
 
-# Check disabled automations
-python3 query-hue-automation.py --state disabled
-
-# Search for specific device
-python3 query-hue-inventory.py --name "*sensor*" --detailed
+# Archive with timestamp
+tar -czf hue_backup_$(date +%Y%m%d).tar.gz bridges/
 ```
 
-## Development
-
-### Virtual Environment Setup
-
-The scripts automatically activate the virtual environment if available. To set up your own:
-
+### Scene Validation in Home Assistant
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install aiohue
+# 1. Sync inventories to HA
+./sync-inventory-to-ha.sh
+
+# 2. Deploy scene validator (see HOME_ASSISTANT_INTEGRATION.md)
+# 3. Add label 'validate_scenes' to important scenes
+# 4. Scenes are automatically validated on activation
 ```
 
-### Data Structure
+### Troubleshooting Lights
+```bash
+# Find lights that are off
+python3 query-hue-inventory.py --type lights --state off
 
-All JSON files follow a consistent structure:
+# Find dim lights
+python3 query-hue-inventory.py --type lights --state 20
 
-**Inventory Files:**
-```json
-{
-  "bridge_info": {
-    "ip": "192.168.1.100",
-    "captured_at": "2025-11-12T10:00:00",
-    "config": { "bridge_id": "...", "name": "..." }
-  },
-  "resources": {
-    "devices": { "count": 10, "items": [...] },
-    "lights": { "count": 8, "items": [...] },
-    ...
-  }
-}
+# Detailed info for specific light
+python3 query-hue-inventory.py --name "*Problem*" --detailed
 ```
 
-**Automation Files:**
-```json
-{
-  "bridge_info": { ... },
-  "automations": {
-    "smart_scenes": { "count": 2, "items": [...] },
-    "behavior_instances": { "count": 5, "items": [...] },
-    ...
-  }
-}
-```
+## Getting Started
+
+### New Users
+1. Read [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system overview
+2. Follow [HUE_BRIDGE_MANAGEMENT.md](docs/HUE_BRIDGE_MANAGEMENT.md) for bridge setup
+3. (Optional) Follow [HOME_ASSISTANT_INTEGRATION.md](docs/HOME_ASSISTANT_INTEGRATION.md) for HA integration
+
+### Quick Reference
+- **Discover bridges**: `python3 discover-hue-bridges.py`
+- **Register credentials**: `python3 register-hue-user.py`
+- **Capture inventory**: `python3 inventory-hue-bridge.py`
+- **Query data**: `python3 query-hue-inventory.py --help`
+- **Sync to HA**: `./sync-inventory-to-ha.sh`
+- **Export HA data**: `python3 export-ha-hue-inventory.py`
 
 ## Contributing
 
-This is a personal project for managing Philips Hue bridges. You're welcome to adapt this toolkit for your own smart home setup or contribute improvements back to the project.
-
-## License
-
-See LICENSE file for details.
+This is a personal project for managing Philips Hue bridges and integrating with Home Assistant. You're welcome to adapt this toolkit for your own smart home setup or contribute improvements.
 
 ## Resources
 
 - [aiohue Documentation](https://github.com/home-assistant-libs/aiohue)
 - [Philips Hue API V2 Documentation](https://developers.meethue.com/develop/hue-api-v2/)
 - [Home Assistant Hue Integration](https://www.home-assistant.io/integrations/hue/)
+- [AppDaemon Documentation](https://appdaemon.readthedocs.io/)
+
+## License
+
+See LICENSE file for details.
