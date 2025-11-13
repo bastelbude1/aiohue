@@ -293,8 +293,8 @@ class SceneValidator(hass.Hass):
         if not self.check_rate_limits(entity_id):
             return False
 
-        # Check UID exclusions
-        if scene_uid in self.exclude_uids:
+        # Check UID exclusions (if scene_uid is available)
+        if scene_uid and scene_uid in self.exclude_uids:
             self.log(f"Scene {entity_id} excluded by UID", level="DEBUG")
             return False
 
