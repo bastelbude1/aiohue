@@ -544,7 +544,8 @@ def main():
 
         # Generate filename
         safe_title = sanitize_filename(bridge_title)
-        filename = f"ha_{safe_title}-{bridge_id}.json"
+        safe_id = sanitize_filename(bridge_id)
+        filename = f"ha_{safe_title}-{safe_id or 'unknown_bridge'}.json"
         filepath = args.output_dir / filename
 
         # Write file
