@@ -135,7 +135,9 @@ class SceneValidator(hass.Hass):
                 with open(inventory_file) as f:
                     inventory = json.load(f)
                     self.inventories.append(inventory)
-                    bridge_name = inventory.get('bridge_info', {}).get('name', 'Unknown')
+                    # Handle nested bridge_info structure (bridge_info.config.name)
+                    bridge_config = inventory.get('bridge_info', {}).get('config', {})
+                    bridge_name = bridge_config.get('name') or inventory.get('bridge_info', {}).get('name', 'Unknown')
                     self.log(f"Loaded inventory: {bridge_name}")
             except (json.JSONDecodeError, IOError) as e:
                 self.error(f"Failed to load {inventory_file.name}: {e}")
@@ -149,13 +151,16 @@ class SceneValidator(hass.Hass):
 
     def setup_scene_listeners(self):
         """
-        Set up state listeners for all Hue scene entities.
+        Set up state listeners for all scene entities.
 
         This detects scene activations from ANY source:
         - Home Assistant UI/automations
         - Hue mobile app
         - Hue physical switches/dimmers
         - Hue third-party apps
+
+        Note: Monitors ALL scenes; filtering happens in should_validate_scene()
+        based on name_patterns, labels, etc.
         """
         scene_count = 0
 
@@ -167,14 +172,14 @@ class SceneValidator(hass.Hass):
             return
 
         for entity_id in all_scenes.keys():
-            if self.is_hue_scene(entity_id):
-                # Listen to last_triggered attribute changes
-                self.listen_state(self.on_scene_state_changed, entity_id,
-                                attribute="last_triggered")
-                scene_count += 1
-                self.log(f"Monitoring: {entity_id}", level="DEBUG")
+            # Monitor all scene entities - filtering happens later
+            # Listen to last_triggered attribute changes
+            self.listen_state(self.on_scene_state_changed, entity_id,
+                            attribute="last_triggered")
+            scene_count += 1
+            self.log(f"Monitoring: {entity_id}", level="DEBUG")
 
-        self.log(f"Monitoring {scene_count} Hue scene(s) for activations")
+        self.log(f"Monitoring {scene_count} scene(s) for activations")
 
     def is_hue_scene(self, entity_id: str) -> bool:
         """
