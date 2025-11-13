@@ -67,10 +67,12 @@ Level 3: Individual Light Control (Fallback)
 
 ### Key Features
 
+- ✅ **Universal scene detection**: Validates scenes activated from ANY source (HA, Hue app, physical switches)
 - ✅ **Inventory-based validation**: Ground truth from Hue bridge scene definitions
 - ✅ **Automatic correction**: Re-triggers scenes or sets lights individually
 - ✅ **Fallback mechanism**: Works even if Hue bridge scenes fail
 - ✅ **Snapshot capture**: Records actual states for drift detection
+- ✅ **Intelligent debouncing**: Prevents duplicate validations and loops (30s window)
 - ✅ **Selective validation**: Filter scenes by labels or patterns (avoid validating all 214 scenes)
 - ✅ **Minimal overhead**: Validation only on scene activation, not continuous monitoring
 - ✅ **User notifications**: Alerts on critical failures
@@ -112,16 +114,21 @@ Level 3: Individual Light Control (Fallback)
 │  ┌──────────────────────────────────────┴──────────────────┐   │
 │  │ AppDaemon: scene_validator.py                           │   │
 │  │                                                          │   │
-│  │  1. Listens for scene activations (event: call_service) │   │
-│  │  2. Waits for light transitions (5s)                    │   │
-│  │  3. Creates snapshot (scene.create)                     │   │
-│  │  4. Validates against inventory:                        │   │
+│  │  1. Monitors scene state changes (ANY activation source)│   │
+│  │     - HA UI/automations                                 │   │
+│  │     - Hue app (mobile/desktop)                          │   │
+│  │     - Physical switches/dimmers                         │   │
+│  │     - Hue automations/routines                          │   │
+│  │  2. Debouncing (30s window, prevents loops)            │   │
+│  │  3. Waits for light transitions (5s)                    │   │
+│  │  4. Creates snapshot (scene.create)                     │   │
+│  │  5. Validates against inventory:                        │   │
 │  │     - On/off states                                     │   │
 │  │     - Brightness (±5% tolerance)                        │   │
-│  │  5. Escalation on failure:                              │   │
+│  │  6. Escalation on failure:                              │   │
 │  │     - Level 2: Re-trigger scene                         │   │
 │  │     - Level 3: Set lights individually                  │   │
-│  │  6. Sends notifications on critical failures            │   │
+│  │  7. Sends notifications on critical failures            │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                  │
 │  ┌─────────────────────────────────────────────────────────┐   │
@@ -136,29 +143,44 @@ Level 3: Individual Light Control (Fallback)
 ### Data Flow
 
 ```text
-1. User activates scene (UI, automation, switch, voice)
+1. Scene activated via ANY source:
+   - Option A: User clicks HA UI → HA calls scene.turn_on
+   - Option B: User clicks Hue app → Bridge activates directly
+   - Option C: User presses physical switch → Bridge activates directly
    ↓
-2. HA calls scene.turn_on → Hue bridge activates scene
+2. Hue bridge activates scene (lights transition)
    ↓
-3. AppDaemon intercepts call_service event
+3. HA Hue integration detects change:
+   - Via Hue API v2 Event Stream (SSE) - real-time push
+   - Or via periodic polling
    ↓
-4. Wait for transition (5s)
+4. HA scene entity last_triggered attribute updates
    ↓
-5. Create snapshot (capture actual states)
+5. AppDaemon listen_state() fires
    ↓
-6. Load scene definition from inventory JSON
+6. Debouncing check (skip if validated in last 30s)
    ↓
-7. Validate each light:
+7. Scene filtering check (labels, patterns)
+   ↓
+8. Schedule validation (run_in with transition delay)
+   ↓
+9. Wait for transition (5s)
+   ↓
+10. Create snapshot (capture actual states)
+   ↓
+11. Load scene definition from inventory JSON
+   ↓
+12. Validate each light:
    - Map Hue resource ID → HA entity_id (via unique_id)
    - Compare actual vs target (on/off, brightness)
    ↓
-8. If failures detected:
+13. If failures detected:
    - Level 2: Re-trigger scene
    - Level 3: Set lights individually from inventory
    ↓
-9. Update monitoring sensors
+14. Update monitoring sensors
    ↓
-10. Send notification if critical failure
+15. Send notification if critical failure
 ```
 
 ---
@@ -301,6 +323,7 @@ scene_validator:
   transition_delay: 5                  # Seconds to wait for light transitions
   retry_delay: 5                       # Seconds between retry attempts
   individual_light_delay: 0.2          # Seconds between individual light calls
+  validation_debounce: 30              # Seconds to prevent duplicate validations
 
   # Inventory paths
   inventory_eg: /homeassistant/hue_inventories/Bridge_Downstairs-abc123def456.json
@@ -729,9 +752,13 @@ class SceneValidator(hass.Hass):
             'last_failure': None
         }
 
-        # Listen for scene activations
-        self.listen_event(self.on_scene_activated, "call_service",
-                         domain="scene", service="turn_on")
+        # Track recent validations to avoid duplicates/loops
+        self.recent_validations = {}  # {scene_entity: timestamp}
+        self.validation_debounce = self.args.get('validation_debounce', 30)
+
+        # Listen for scene activations from ANY source (HA, Hue app, switches)
+        # Monitor state changes instead of call_service events
+        self.setup_scene_listeners()
 
         # Register reload service
         self.register_service("scene_validator/reload_inventories", self.reload_inventories)
@@ -739,6 +766,8 @@ class SceneValidator(hass.Hass):
         self.log("Scene Validator initialized")
         self.log(f"Loaded {len(self.inventories)} inventory file(s)")
         self.log(f"Brightness tolerance: ±{self.brightness_tolerance}%")
+        self.log(f"Detection: Universal (HA, Hue app, switches)")
+        self.log(f"Debounce window: {self.validation_debounce}s")
 
     def load_inventories(self):
         """Load Hue inventory JSON files"""
@@ -771,6 +800,110 @@ class SceneValidator(hass.Hass):
         self.log("Reloading inventories...")
         self.load_inventories()
         return {"status": "ok", "inventories_loaded": len(self.inventories)}
+
+    def setup_scene_listeners(self):
+        """
+        Set up state listeners for all Hue scene entities.
+
+        This detects scene activations from ANY source:
+        - Home Assistant UI/automations
+        - Hue mobile app
+        - Hue physical switches/dimmers
+        - Hue third-party apps
+        """
+        scene_count = 0
+
+        # Get all scene entities
+        all_scenes = self.get_state("scene")
+
+        if not all_scenes:
+            self.error("No scene entities found in Home Assistant")
+            return
+
+        for entity_id in all_scenes.keys():
+            if self.is_hue_scene(entity_id):
+                # Listen to last_triggered attribute changes
+                self.listen_state(self.on_scene_state_changed, entity_id,
+                                attribute="last_triggered")
+                scene_count += 1
+                self.log(f"Monitoring: {entity_id}", level="DEBUG")
+
+        self.log(f"Monitoring {scene_count} Hue scene(s) for activations")
+
+    def is_hue_scene(self, entity_id):
+        """
+        Check if scene entity belongs to Hue integration.
+
+        Args:
+            entity_id: HA entity_id (e.g., scene.wohnzimmer_standard)
+
+        Returns:
+            True if scene is from Hue integration, False otherwise
+        """
+        unique_id = self.get_state(entity_id, attribute="unique_id")
+
+        if not unique_id:
+            return False
+
+        # Check if unique_id contains any loaded Hue bridge ID
+        for inventory in self.inventories:
+            bridge_id = inventory.get('bridge_info', {}).get('bridge_id', '')
+            if bridge_id and bridge_id.replace(':', '') in unique_id:
+                return True
+
+        return False
+
+    def on_scene_state_changed(self, entity, attribute, old, new, kwargs):
+        """
+        Handle scene state change (detects activations from ANY source).
+
+        This is called when last_triggered attribute changes, indicating
+        the scene was activated by:
+        - Home Assistant (UI, automation, voice)
+        - Hue app (mobile, desktop)
+        - Physical Hue switches/dimmers
+        - Hue automations/routines
+
+        Args:
+            entity: Scene entity_id
+            attribute: 'last_triggered'
+            old: Previous timestamp
+            new: New timestamp
+            kwargs: Additional arguments
+        """
+        import time
+
+        # Skip if last_triggered didn't actually change
+        if old == new or new is None:
+            self.log(f"Skipping {entity} - no state change", level="DEBUG")
+            return
+
+        # Debouncing: avoid duplicate validations within window
+        now = time.time()
+        if entity in self.recent_validations:
+            last_validation = self.recent_validations[entity]
+            if now - last_validation < self.validation_debounce:
+                elapsed = int(now - last_validation)
+                self.log(f"Skipping {entity} - validated {elapsed}s ago (debounce: {self.validation_debounce}s)",
+                        level="DEBUG")
+                return
+
+        # Record this validation attempt
+        self.recent_validations[entity] = now
+
+        # Get scene unique_id for inventory lookup
+        scene_uid = self.get_state(entity, attribute="unique_id")
+
+        self.log(f"Scene activated: {entity} (source: ANY - HA/Hue app/switch)")
+
+        # Check if scene should be validated (filtering logic)
+        if not self.should_validate_scene(entity, scene_uid):
+            self.log(f"Skipping validation for {entity} (filtered out)")
+            return
+
+        # Schedule validation after transition delay
+        self.run_in(self.perform_scene_validation, self.transition_delay,
+                    scene_entity=entity, scene_uid=scene_uid)
 
     def should_validate_scene(self, scene_entity, scene_uid):
         """
@@ -830,37 +963,31 @@ class SceneValidator(hass.Hass):
 
         return self.validate_all_by_default
 
-    def on_scene_activated(self, event, data, kwargs):
-        """Handle scene activation event"""
+    def perform_scene_validation(self, kwargs):
+        """
+        Perform complete scene validation with 3-level escalation.
+
+        This is called after debouncing and transition delay,
+        regardless of how the scene was activated (HA, Hue app, switch).
+
+        Args:
+            kwargs: Contains scene_entity and scene_uid
+        """
         try:
-            # Extract scene entity_id
-            service_data = data.get('service_data', {})
-            scene_entity = service_data.get('entity_id')
+            scene_entity = kwargs.get('scene_entity')
+            scene_uid = kwargs.get('scene_uid')
 
-            if not scene_entity:
+            if not scene_entity or not scene_uid:
+                self.error("perform_scene_validation called without required parameters")
                 return
 
-            # Get scene unique_id
-            scene_uid = self.get_state(scene_entity, attribute='unique_id')
-            if not scene_uid:
-                self.log(f"Scene {scene_entity} has no unique_id, skipping validation")
-                return
-
-            # Check if scene should be validated (filtering)
-            if not self.should_validate_scene(scene_entity, scene_uid):
-                self.log(f"Scene {scene_entity} filtered out, skipping validation")
-                return
-
-            self.log(f"Scene activated: {scene_entity} (uid: {scene_uid})")
+            self.log(f"Starting validation: {scene_entity} (uid: {scene_uid})")
 
             # Update status sensor
             self.set_state('sensor.scene_validation_status', state='validating',
                           attributes={'scene': scene_entity, 'level': 1})
 
-            # Wait for lights to transition
-            self.sleep(self.transition_delay)
-
-            # Create snapshot
+            # Create snapshot (captures actual light states)
             self.create_snapshot(scene_entity, scene_uid)
 
             # Level 1: Validate initial activation
@@ -1632,11 +1759,12 @@ docker logs addon_xxxxx_appdaemon | grep -i error
 # 3. Verify app loaded
 docker logs addon_xxxxx_appdaemon | grep "Scene Validator initialized"
 
-# 4. Check event is firing
-# HA → Developer Tools → Events
-# Listen to: call_service
-# Activate a scene
-# Verify event appears with domain: scene, service: turn_on
+# 4. Check scene state changes
+# HA → Developer Tools → States
+# Find your scene entity (e.g., scene.living_room_standard)
+# Check last_triggered attribute
+# Activate scene (via HA, Hue app, or switch)
+# Verify last_triggered updates to new timestamp
 ```
 
 ### Issue: Scene Not Being Validated (Filtered Out)

@@ -21,7 +21,8 @@ The Home Assistant integration provides advanced features for managing Hue bridg
 
 ### What This Integration Adds
 
-- **Scene Validation** - Verify scenes activate correctly with 3-level escalation
+- **Universal Scene Validation** - Verify scenes work correctly regardless of activation source (HA, Hue app, switches)
+- **3-Level Escalation** - Validate → Re-trigger → Individual control fallback
 - **HA Inventory Export** - Export HA's perspective of Hue entities
 - **Inventory Sync** - Keep Hue bridge inventories available on HA server
 - **Entity Mapping** - Map between Hue resource IDs and HA entity_ids
@@ -213,6 +214,7 @@ scene_validator:
   # Timing
   transition_delay: 5
   validation_delay: 2
+  validation_debounce: 30
 
   # Rate limiting
   max_validations_per_minute: 20
@@ -447,32 +449,37 @@ AppDaemon app that validates scene activations and provides fallback mechanisms.
 
 **Features:**
 
-1. **Scene Validation**
-   - Monitors scene activation events
+1. **Universal Scene Detection**
+   - Detects scene activations from ANY source (HA UI, Hue app, physical switches, Hue automations)
+   - Monitors scene entity state changes (not just HA service calls)
+   - Validates regardless of who triggered the scene
+
+2. **Scene Validation**
    - Compares actual light states with expected states
    - Validates on/off, brightness, and color
+   - Intelligent debouncing prevents duplicate validations
 
-2. **3-Level Escalation**
+3. **3-Level Escalation**
    - Level 1: Validate only (no action)
    - Level 2: Re-trigger scene if validation fails
    - Level 3: Control lights individually as fallback
 
-3. **Entity Mapping**
+4. **Entity Mapping**
    - Connects Hue resource IDs to HA entity_ids
    - Uses `unique_id` for stable mapping
    - Survives entity renames
 
-4. **Rate Limiting**
+5. **Rate Limiting**
    - Per-scene: Max 5 validations/minute
    - Global: Max 20 validations/minute
    - Prevents rapid-fire validations
 
-5. **Circuit Breaker**
+6. **Circuit Breaker**
    - Opens after threshold failures (default: 5)
    - Cooldown period (default: 5 minutes)
    - Half-open testing before full recovery
 
-6. **Scene Filtering**
+7. **Scene Filtering**
    - Include/exclude by labels
    - Pattern matching on scene names
    - UID-based exclusions
@@ -484,6 +491,7 @@ AppDaemon app that validates scene activations and provides fallback mechanisms.
 | `inventory_dir` | string | `/homeassistant/hue_inventories` | Path to inventory files |
 | `transition_delay` | int | 5 | Wait time after scene activation (seconds) |
 | `validation_delay` | int | 2 | Wait time between retries (seconds) |
+| `validation_debounce` | int | 30 | Prevents duplicate validations within time window (seconds) |
 | `max_validations_per_minute` | int | 20 | Global rate limit |
 | `max_validations_per_scene_per_minute` | int | 5 | Per-scene rate limit |
 | `circuit_breaker.failure_threshold` | int | 5 | Failures before opening circuit |
@@ -546,35 +554,43 @@ INFO: All lights match expected state - validation successful
 ### How It Works
 
 ```text
-1. User activates scene
+1. Scene activated via ANY source:
+   - Home Assistant UI/automations
+   - Hue mobile app
+   - Physical Hue switches/dimmers
+   - Hue automations/routines
    ↓
-2. AppDaemon receives event
+2. HA scene entity last_triggered updates
    ↓
-3. Check filters (labels, patterns)
+3. AppDaemon state listener fires
+   ↓
+4. Check debouncing (skip if validated in last 30s)
    ↓ [PASS]
-4. Check rate limits
+5. Check filters (labels, patterns)
    ↓ [PASS]
-5. Check circuit breaker
+6. Check rate limits
+   ↓ [PASS]
+7. Check circuit breaker
    ↓ [CLOSED/HALF_OPEN]
-6. Wait transition_delay (5s)
+8. Wait transition_delay (5s)
    ↓
-7. LEVEL 1: Validate
-   ↓
-   [SUCCESS] → Done
-   ↓
-   [FAILURE]
-   ↓
-8. LEVEL 2: Re-trigger
+9. LEVEL 1: Validate
    ↓
    [SUCCESS] → Done
    ↓
    [FAILURE]
    ↓
-9. LEVEL 3: Individual control
-   ↓
-   [SUCCESS] → Done
-   ↓
-   [FAILURE] → Open circuit
+10. LEVEL 2: Re-trigger
+    ↓
+    [SUCCESS] → Done
+    ↓
+    [FAILURE]
+    ↓
+11. LEVEL 3: Individual control
+    ↓
+    [SUCCESS] → Done
+    ↓
+    [FAILURE] → Open circuit
 ```
 
 ### State Comparison Logic
@@ -722,6 +738,7 @@ scene_validator:
   # Timing (optional)
   transition_delay: 5        # Wait after scene activation
   validation_delay: 2        # Wait between retries
+  validation_debounce: 30    # Prevent duplicate validations (seconds)
 
   # Rate limiting (optional)
   max_validations_per_minute: 20
@@ -774,7 +791,7 @@ export HA_INVENTORY_DIR=/homeassistant/hue_inventories
 
 ### Use Case 1: Basic Scene Validation
 
-**Goal:** Validate all important scenes.
+**Goal:** Validate all important scenes regardless of how they're activated.
 
 ```yaml
 # apps.yaml
@@ -782,6 +799,7 @@ scene_validator:
   module: scene_validator
   class: SceneValidator
   inventory_dir: /homeassistant/hue_inventories
+  validation_debounce: 30
   scene_filter:
     include_labels:
       - validate_scenes
@@ -789,10 +807,16 @@ scene_validator:
 
 **Workflow:**
 1. Add `validate_scenes` label to important scenes
-2. Activate scene
-3. Validator checks all lights
-4. Re-triggers if needed
-5. Falls back to individual control if scene fails
+2. Activate scene (HA UI, Hue app, physical switch, or automation)
+3. Validator detects activation (regardless of source)
+4. Validator checks all lights after transition delay
+5. Re-triggers if needed
+6. Falls back to individual control if scene fails
+
+**Benefits:**
+- Works with any activation method (HA, Hue app, switches, automations)
+- Debouncing prevents duplicate validations
+- No manual intervention needed
 
 ### Use Case 2: Development Environment
 
