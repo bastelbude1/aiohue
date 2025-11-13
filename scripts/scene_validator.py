@@ -224,6 +224,14 @@ class SceneValidator(hass.Hass):
 
         # Debouncing: avoid duplicate validations within window
         now = time.time()
+
+        # Clean old validation records (older than debounce window)
+        cutoff = now - self.validation_debounce
+        self.recent_validations = {
+            ent: ts for ent, ts in self.recent_validations.items()
+            if ts > cutoff
+        }
+
         if entity in self.recent_validations:
             last_validation = self.recent_validations[entity]
             if now - last_validation < self.validation_debounce:
@@ -231,9 +239,6 @@ class SceneValidator(hass.Hass):
                 self.log(f"Skipping {entity} - validated {elapsed}s ago "
                         f"(debounce: {self.validation_debounce}s)", level="DEBUG")
                 return
-
-        # Record this validation attempt
-        self.recent_validations[entity] = now
 
         # Get scene unique_id for inventory lookup
         scene_uid = self.get_state(entity, attribute="unique_id")
@@ -244,6 +249,9 @@ class SceneValidator(hass.Hass):
         if not self.should_validate_scene(entity, scene_uid):
             self.log(f"Skipping validation for {entity} (filtered out)")
             return
+
+        # Record this validation attempt (after filtering)
+        self.recent_validations[entity] = now
 
         # Schedule validation after transition delay
         self.run_in(self.perform_scene_validation, self.transition_delay,
@@ -396,11 +404,43 @@ class SceneValidator(hass.Hass):
 
             self.log(f"✗ Validation failed: {scene_entity}", level="WARNING")
 
-            # LEVEL 2: Re-trigger scene
+            # LEVEL 2: Re-trigger scene (async scheduling to avoid blocking)
             self.log("LEVEL 2: Re-triggering scene")
             self.call_service("scene/turn_on", entity_id=scene_entity)
-            self.sleep(self.validation_delay)
 
+            # Schedule level 2 validation after delay (non-blocking)
+            self.run_in(
+                self.perform_level2_validation,
+                self.validation_delay,
+                scene_entity=scene_entity,
+                scene_data=scene_data
+            )
+
+        except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
+            self.error(f"Exception during validation: {e}")
+            import traceback
+            self.error(f"Traceback: {traceback.format_exc()}")
+            self.record_failure()
+
+    def perform_level2_validation(self, kwargs):
+        """
+        Perform level 2 and 3 validation after re-trigger delay.
+
+        This is called asynchronously after the re-trigger delay to avoid
+        blocking the AppDaemon worker thread.
+
+        Args:
+            kwargs: Contains scene_entity and scene_data
+        """
+        try:
+            scene_entity = kwargs.get('scene_entity')
+            scene_data = kwargs.get('scene_data')
+
+            if not scene_entity or not scene_data:
+                self.error("perform_level2_validation called without required parameters")
+                return
+
+            # Level 2: Validate after re-trigger
             if self.validate_scene_state(scene_entity, scene_data):
                 self.log(f"✓ Re-trigger successful: {scene_entity}")
                 self.record_success()
@@ -420,7 +460,7 @@ class SceneValidator(hass.Hass):
             self.record_failure()
 
         except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
-            self.error(f"Exception during validation: {e}")
+            self.error(f"Exception during level 2/3 validation: {e}")
             import traceback
             self.error(f"Traceback: {traceback.format_exc()}")
             self.record_failure()
@@ -438,8 +478,13 @@ class SceneValidator(hass.Hass):
         for inventory in self.inventories:
             scenes = inventory.get('resources', {}).get('scenes', {}).get('items', [])
             for scene in scenes:
-                # Match by resource ID
-                if scene.get('id') in scene_uid:
+                # Match by resource ID (precise UUID match with delimiters)
+                scene_id = scene.get('id')
+                if scene_id and (
+                    scene_uid.endswith(scene_id) or
+                    f"_{scene_id}" in scene_uid or
+                    f"-{scene_id}" in scene_uid
+                ):
                     return scene
 
         return None
@@ -655,7 +700,12 @@ class SceneValidator(hass.Hass):
         for entity_id in lights.keys():
             unique_id = self.get_state(entity_id, attribute='unique_id')
 
-            if unique_id and hue_resource_id in unique_id:
+            # Precise UUID match with delimiters (avoid false positives)
+            if unique_id and (
+                unique_id.endswith(hue_resource_id) or
+                f"_{hue_resource_id}" in unique_id or
+                f"-{hue_resource_id}" in unique_id
+            ):
                 return entity_id
 
         return None
@@ -695,4 +745,4 @@ class SceneValidator(hass.Hass):
             if self.circuit_breaker_failures >= self.cb_failure_threshold:
                 self.circuit_breaker_state = 'OPEN'
                 self.circuit_breaker_opened_at = time.time()
-                self.error(f"Circuit breaker OPENED (threshold reached)")
+                self.error("Circuit breaker OPENED (threshold reached)")
