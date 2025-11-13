@@ -229,21 +229,31 @@ class SceneValidator(hass.Hass):
         """
         unique_id = self.get_state(entity_id, attribute="unique_id")
 
-        if not unique_id:
-            return False
+        if unique_id:
+            # Try unique_id approach (works for lights, sensors, etc.)
+            # Check if unique_id contains any loaded Hue bridge ID
+            # Bridge IDs from Hue API typically have format: "XX:XX:XX:XX:XX:XX" (MAC address)
+            # HA unique_ids contain the normalized form without colons
+            for inventory in self.inventories:
+                bridge_id = inventory.get('bridge_info', {}).get('bridge_id', '')
+                if not bridge_id:
+                    continue
 
-        # Check if unique_id contains any loaded Hue bridge ID
-        # Bridge IDs from Hue API typically have format: "XX:XX:XX:XX:XX:XX" (MAC address)
-        # HA unique_ids contain the normalized form without colons
-        for inventory in self.inventories:
-            bridge_id = inventory.get('bridge_info', {}).get('bridge_id', '')
-            if not bridge_id:
-                continue
+                # Normalize bridge ID by removing colons (handles both formats)
+                normalized_bridge_id = bridge_id.replace(':', '').lower()
+                if normalized_bridge_id and normalized_bridge_id in unique_id.lower():
+                    return True
 
-            # Normalize bridge ID by removing colons (handles both formats)
-            normalized_bridge_id = bridge_id.replace(':', '').lower()
-            if normalized_bridge_id and normalized_bridge_id in unique_id.lower():
-                return True
+        # Fallback for scenes: Check for Hue-specific attributes
+        # Scene entities don't expose unique_id in state API, but have Hue-specific attributes
+        # like group_name and group_type that non-Hue scenes don't have
+        group_name = self.get_state(entity_id, attribute="group_name")
+        group_type = self.get_state(entity_id, attribute="group_type")
+
+        # If scene has both group_name and group_type, it's a Hue scene
+        # (HA-created scenes don't have these attributes)
+        if group_name is not None and group_type is not None:
+            return True
 
         return False
 
