@@ -39,7 +39,7 @@ Neither the Hue bridge nor Home Assistant detects these failures automatically.
 
 ### Solution: 3-Level Escalation
 
-```
+```text
 Level 1: Initial Scene Activation
   User triggers scene.wohnzimmer_standard
   → Hue bridge activates scene
@@ -81,7 +81,7 @@ Level 3: Individual Light Control (Fallback)
 
 ### Component Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │ LocalMachine (Local Machine)                                      │
 │                                                                  │
@@ -135,7 +135,7 @@ Level 3: Individual Light Control (Fallback)
 
 ### Data Flow
 
-```
+```text
 1. User activates scene (UI, automation, switch, voice)
    ↓
 2. HA calls scene.turn_on → Hue bridge activates scene
@@ -280,7 +280,7 @@ AppDaemon will automatically reload inventories:
 
 ### File Structure
 
-```
+```text
 /homeassistant/appdaemon/
 ├── apps/
 │   ├── apps.yaml                    # App configuration
@@ -351,7 +351,7 @@ By default, validating all 214 scenes creates unnecessary overhead. The **Hybrid
 
 When a scene is activated, the validator checks in this order:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │ Priority 1: HA Entity Label                                 │
 │ If scene has label "validate_scene" → VALIDATE ✓           │
@@ -430,7 +430,7 @@ scene_validator:
 | `".*Nachtlicht$"` | Any scene ending with "Nachtlicht" | Validate all night scenes |
 | `"^Feuer.*"` | Scenes starting with "Feuer" | Validate all fire-effect scenes |
 | `"Wohnzimmer\|Schlafzimmer"` | Scenes containing either word | Validate specific rooms |
-| `".*_(on\|off)$"` | Scenes ending with _on or _off | Validate binary scenes |
+| `".*_(on\|off)$"` | Scenes ending with `_on` or `_off` | Validate binary scenes |
 
 **Regex Reference**:
 - `^` = Start of string
@@ -1133,15 +1133,16 @@ class SceneValidator(hass.Hass):
 
     async def get_entity_id_from_hue_id(self, hue_resource_id):
         """Map Hue resource ID to HA entity_id via unique_id"""
-        # Use HA's entity registry to find entity with matching unique_id
+        # Get all light entities
         entities = await self.get_state('light', attribute='all')
 
-        for entity_id, entity_data in entities.items():
+        for entity_id in entities.keys():
             if not entity_id.startswith('light.'):
                 continue
 
-            attributes = entity_data.get('attributes', {})
-            unique_id = attributes.get('unique_id')
+            # Query unique_id directly from entity registry via get_state
+            # unique_id is not in state attributes, must query separately
+            unique_id = await self.get_state(entity_id, attribute='unique_id')
 
             # Check if this entity matches the Hue resource ID
             if unique_id == hue_resource_id:
@@ -1391,14 +1392,14 @@ data:
 ### Test Scenarios
 
 #### Test 1: Normal Operation (Level 1 Success)
-```
+```text
 1. Activate scene.wohnzimmer_standard
 2. Expected: Validation passes, no retry needed
 3. Verify: Check logs show "✓ Scene validated successfully"
 ```
 
 #### Test 2: Single Light Deviation (Level 2 Recovery)
-```
+```text
 1. Activate scene.wohnzimmer_standard
 2. Immediately after activation (within 5s):
    - Manually turn off one light via HA

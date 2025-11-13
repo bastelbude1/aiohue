@@ -632,22 +632,22 @@ hass.states.set('sensor.scene_validation_result',
 
 **Deployment Plan**:
 
-**Phase 1: Prototype (Week 1)**
+### Phase 1: Prototype (Week 1)
 - Create validation script for 1 test scene
 - Test with intentional failures (turn off light, change brightness)
 - Tune timing and tolerance parameters
 
-**Phase 2: Inventory Integration (Week 2)**
+### Phase 2: Inventory Integration (Week 2)
 - Export Hue inventories to HA config directory
 - Create inventory loader in Python script
 - Build light ID → entity_id mapping cache
 
-**Phase 3: Automation Framework (Week 3)**
+### Phase 3: Automation Framework (Week 3)
 - Create universal scene validation automation
 - Add monitoring sensors (validation success rate)
 - Implement retry logic with backoff
 
-**Phase 4: Rollout (Week 4)**
+### Phase 4: Rollout (Week 4)
 - Enable for all 214 scenes
 - Monitor for false positives
 - Create dashboard for validation metrics
@@ -660,7 +660,7 @@ hass.states.set('sensor.scene_validation_result',
 
 If full hybrid solution is too complex initially, start with **Approach 3 (Snapshot)** for quick deployment:
 
-**Quick Start** (1 day implementation):
+### Quick Start (1-day implementation)
 ```yaml
 - alias: "Scene Validation - Simple"
   mode: queued
