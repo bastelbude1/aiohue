@@ -609,14 +609,15 @@ class SceneValidator(hass.Hass):
                 if not self.compare_light_states(entity_id, expected, actual_state):
                     all_match = False
 
-            return all_match
-
         except AttributeError as e:
             self.log(f"Inventory format issue (actions are strings): {e}", level="WARNING")
             return False
         except Exception as e:  # noqa: BLE001
             self.error(f"Error validating scene state: {e}")
             return False
+        else:
+            # Successfully validated all actions - return result
+            return all_match
 
     def compare_light_states(self, entity_id: str, expected: Dict[str, Any],
                             actual_state: Dict[str, Any]) -> bool:
