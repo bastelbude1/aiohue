@@ -63,7 +63,36 @@ from typing import Dict, List, Optional, Any
 # SSH Configuration
 SSH_KEY = Path(__file__).parent.parent.parent / "homeassistant_ssh_key"
 SSH_USER = os.getenv("HA_SSH_USER", "hassio")
-SSH_HOST = os.getenv("HA_SSH_HOST", "192.168.1.100")  # Default placeholder, configure via environment
+
+
+def _validate_ssh_host(host: str) -> str:
+    """
+    Validate SSH host to prevent command injection.
+
+    Args:
+        host: Hostname or IP address from environment
+
+    Returns:
+        Validated host string
+
+    Raises:
+        SystemExit: If host is invalid or not set
+    """
+    if not host:
+        print("Error: HA_SSH_HOST environment variable must be set", file=sys.stderr)
+        print("Example: export HA_SSH_HOST=192.168.1.100", file=sys.stderr)
+        sys.exit(1)
+
+    # Allow only safe characters: alphanumeric, dots, hyphens, brackets (IPv6), colons (IPv6)
+    if not re.match(r'^[\w\.\-\[\]:]+$', host):
+        print(f"Error: Invalid HA_SSH_HOST format: {host}", file=sys.stderr)
+        print("Host must contain only alphanumeric characters, dots, hyphens, and brackets", file=sys.stderr)
+        sys.exit(1)
+
+    return host
+
+
+SSH_HOST = _validate_ssh_host(os.getenv("HA_SSH_HOST", ""))
 
 
 def parse_arguments():
@@ -157,7 +186,7 @@ def run_ssh_command(command: str) -> Optional[str]:
     except subprocess.TimeoutExpired:
         print("SSH command timed out", file=sys.stderr)
         return None
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         print(f"SSH error: {e}", file=sys.stderr)
         return None
 
