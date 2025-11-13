@@ -96,9 +96,9 @@ class SceneValidator(hass.Hass):
         # Monitor state changes instead of call_service events
         self.setup_scene_listeners()
 
-        self.log(f"Validator initialized successfully")
+        self.log("Validator initialized successfully")
         self.log(f"Inventory directory: {self.inventory_dir}")
-        self.log(f"Detection: Universal (HA, Hue app, switches)")
+        self.log("Detection: Universal (HA, Hue app, switches)")
         self.log(f"Transition delay: {self.transition_delay}s")
         self.log(f"Validation delay: {self.validation_delay}s")
         self.log(f"Debounce window: {self.validation_debounce}s")
@@ -199,7 +199,7 @@ class SceneValidator(hass.Hass):
 
         return False
 
-    def on_scene_state_changed(self, entity, attribute, old, new, kwargs):
+    def on_scene_state_changed(self, entity, _attribute, old, new, _kwargs):
         """
         Handle scene state change (detects activations from ANY source).
 
@@ -212,10 +212,10 @@ class SceneValidator(hass.Hass):
 
         Args:
             entity: Scene entity_id
-            attribute: Attribute that changed (last_triggered)
+            _attribute: Attribute that changed (last_triggered) - unused but required by callback
             old: Previous value
             new: New value
-            kwargs: Additional parameters
+            _kwargs: Additional parameters - unused but required by callback
         """
         # Skip if last_triggered didn't actually change
         if old == new or new is None:
@@ -262,8 +262,15 @@ class SceneValidator(hass.Hass):
         """
         # Check circuit breaker
         if self.circuit_breaker_state == 'OPEN':
-            self.log(f"Circuit breaker OPEN - skipping {entity_id}", level="WARNING")
-            return False
+            # Check if timeout expired - transition to HALF_OPEN
+            if (self.circuit_breaker_opened_at and
+                time.time() - self.circuit_breaker_opened_at >= self.cb_timeout):
+                self.circuit_breaker_state = 'HALF_OPEN'
+                self.circuit_breaker_successes = 0
+                self.log("Circuit breaker HALF_OPEN (timeout expired, testing)")
+            else:
+                self.log(f"Circuit breaker OPEN - skipping {entity_id}", level="WARNING")
+                return False
 
         # Check rate limits
         if not self.check_rate_limits(entity_id):
@@ -381,7 +388,7 @@ class SceneValidator(hass.Hass):
                 return
 
             # LEVEL 1: Validate
-            self.log(f"LEVEL 1: Validating scene state")
+            self.log("LEVEL 1: Validating scene state")
             if self.validate_scene_state(scene_entity, scene_data):
                 self.log(f"✓ Validation successful: {scene_entity}")
                 self.record_success()
@@ -390,7 +397,7 @@ class SceneValidator(hass.Hass):
             self.log(f"✗ Validation failed: {scene_entity}", level="WARNING")
 
             # LEVEL 2: Re-trigger scene
-            self.log(f"LEVEL 2: Re-triggering scene")
+            self.log("LEVEL 2: Re-triggering scene")
             self.call_service("scene/turn_on", entity_id=scene_entity)
             self.sleep(self.validation_delay)
 
@@ -402,7 +409,7 @@ class SceneValidator(hass.Hass):
             self.log(f"✗ Re-trigger failed: {scene_entity}", level="WARNING")
 
             # LEVEL 3: Individual light control
-            self.log(f"LEVEL 3: Controlling lights individually")
+            self.log("LEVEL 3: Controlling lights individually")
             if self.control_lights_individually(scene_data):
                 self.log(f"✓ Individual control successful: {scene_entity}")
                 self.record_success()
@@ -412,8 +419,10 @@ class SceneValidator(hass.Hass):
             self.error(f"✗ All escalation levels failed: {scene_entity}")
             self.record_failure()
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
             self.error(f"Exception during validation: {e}")
+            import traceback
+            self.error(f"Traceback: {traceback.format_exc()}")
             self.record_failure()
 
     def find_scene_in_inventory(self, scene_uid: str) -> Optional[Dict[str, Any]]:
@@ -427,7 +436,7 @@ class SceneValidator(hass.Hass):
             Scene data dict or None if not found
         """
         for inventory in self.inventories:
-            scenes = inventory.get('resources', {}).get('scene', {}).get('items', [])
+            scenes = inventory.get('resources', {}).get('scenes', {}).get('items', [])
             for scene in scenes:
                 # Match by resource ID
                 if scene.get('id') in scene_uid:
@@ -687,12 +696,3 @@ class SceneValidator(hass.Hass):
                 self.circuit_breaker_state = 'OPEN'
                 self.circuit_breaker_opened_at = time.time()
                 self.error(f"Circuit breaker OPENED (threshold reached)")
-
-        # Check if timeout expired (transition to HALF_OPEN)
-        if self.circuit_breaker_state == 'OPEN':
-            if self.circuit_breaker_opened_at:
-                elapsed = time.time() - self.circuit_breaker_opened_at
-                if elapsed >= self.cb_timeout:
-                    self.circuit_breaker_state = 'HALF_OPEN'
-                    self.circuit_breaker_successes = 0
-                    self.log("Circuit breaker HALF_OPEN (timeout expired, testing)")
