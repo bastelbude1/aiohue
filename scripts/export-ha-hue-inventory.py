@@ -83,10 +83,10 @@ def _validate_ssh_host(host: str) -> str:
         print("Example: export HA_SSH_HOST=192.168.1.100", file=sys.stderr)
         sys.exit(1)
 
-    # Allow only safe characters: alphanumeric, dots, hyphens, brackets (IPv6), colons (IPv6)
+    # Allow only safe characters: alphanumeric, underscore, dots, hyphens, brackets (IPv6), colons (IPv6/port)
     if not re.match(r'^[\w\.\-\[\]:]+$', host):
         print(f"Error: Invalid HA_SSH_HOST format: {host}", file=sys.stderr)
-        print("Host must contain only alphanumeric characters, dots, hyphens, and brackets", file=sys.stderr)
+        print("Host must contain only alphanumeric characters, underscores, dots, hyphens, brackets, and colons", file=sys.stderr)
         sys.exit(1)
 
     return host
