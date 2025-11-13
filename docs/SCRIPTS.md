@@ -263,6 +263,60 @@ Examples:
 - Backup resource metadata
 - Query and filter resources with query-hue-inventory.py
 
+**JSON Encoder (Enhanced in PR #9):**
+
+The script uses a custom JSON encoder to handle complex aiohue objects:
+
+```python
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle complex objects."""
+    def default(self, obj):
+        # Handle Enum types
+        if isinstance(obj, Enum):
+            return str(obj.value) if hasattr(obj, 'value') else str(obj)
+
+        # Recursively handle objects with __dict__
+        if hasattr(obj, '__dict__'):
+            result = {}
+            for k, v in obj.__dict__.items():
+                if k.startswith('_'):
+                    continue
+                # Recursively handle nested objects
+                if hasattr(v, '__dict__') and not isinstance(v, (str, int, float, bool, type(None))):
+                    result[k] = self.default(v)
+                elif isinstance(v, list):
+                    result[k] = [self.default(item) if hasattr(item, '__dict__') else item for item in v]
+                else:
+                    result[k] = v
+            return result
+
+        return str(obj)
+```
+
+This ensures scene actions are properly serialized as JSON objects:
+
+```json
+{
+  "scenes": {
+    "items": [
+      {
+        "actions": [
+          {
+            "target": {"rid": "uuid", "rtype": "light"},
+            "action": {
+              "on": {"on": true},
+              "dimming": {"brightness": 84.0}
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Previously, actions were stored as Python string representations (e.g., `"Action(target=...)"`), which prevented the scene validator from parsing action data.
+
 ---
 
 ### query-hue-inventory.py

@@ -551,6 +551,41 @@ INFO: All lights match expected state - validation successful
 
 ## Scene Validation System
 
+### Current Status (v2.0.0)
+
+✅ **Operational** - Deployed and running on Home Assistant production
+- Scene detection working from all sources (HA, Hue app, physical switches)
+- 3-level escalation functional
+- Circuit breaker active with auto-recovery
+- Debouncing prevents duplicate validations
+- Rate limiting enforced (20/min global, 5/min per-scene)
+
+⚠️ **Known Limitation** - Entity ID mapping not fully implemented:
+- Level 1 validation can parse scene actions but cannot map Hue resource IDs to HA entity_ids
+- Falls back to Level 2 (re-trigger) which ensures scenes are properly applied
+- Full light state validation requires entity registry integration
+- This does not affect reliability - scenes are re-triggered and work correctly
+
+### Inventory Format (Fixed in PR #9)
+
+Scene actions are now properly serialized as JSON objects:
+```json
+{
+  "actions": [
+    {
+      "target": {"rid": "uuid", "rtype": "light"},
+      "action": {
+        "on": {"on": true},
+        "dimming": {"brightness": 84.0},
+        "color": {"xy": {"x": 0.5, "y": 0.4}}
+      }
+    }
+  ]
+}
+```
+
+Previously, actions were stored as Python string representations, preventing Level 1 validation. This has been fixed in `inventory-hue-bridge.py` with an enhanced JSON encoder.
+
 ### How It Works
 
 ```text
@@ -560,7 +595,7 @@ INFO: All lights match expected state - validation successful
    - Physical Hue switches/dimmers
    - Hue automations/routines
    ↓
-2. HA scene entity last_triggered updates
+2. HA scene entity state changes (state = timestamp)
    ↓
 3. AppDaemon state listener fires
    ↓

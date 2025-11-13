@@ -71,6 +71,23 @@ Contains complete device inventories from each bridge including:
 
 **Queried by:** `query-hue-inventory.py`
 
+**Format Note (Enhanced in PR #9):** Scene actions are now properly serialized as JSON objects (not Python string representations). This enables the scene validator to parse and validate individual light states.
+
+Example scene action structure:
+```json
+{
+  "actions": [
+    {
+      "target": {"rid": "light-uuid", "rtype": "light"},
+      "action": {
+        "on": {"on": true},
+        "dimming": {"brightness": 84.0}
+      }
+    }
+  ]
+}
+```
+
 **Why excluded:** Contains personal device names, room layouts, and network topology.
 
 ### `automations/` - Automation Data
