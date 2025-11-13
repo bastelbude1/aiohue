@@ -57,50 +57,12 @@ import asyncio
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
-from enum import Enum
+# Import shared JSON encoder
+from common.json_utils import CustomJSONEncoder
 
+# NOTE: CustomJSONEncoder class moved to common/json_utils.py to avoid duplication
+# The encoder provides: enum handling, circular reference protection, recursive serialization
 
-class CustomJSONEncoder(json.JSONEncoder):
-    """Custom JSON encoder to handle complex objects with circular reference protection."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._visited = set()
-
-    def default(self, obj):
-        # Handle Enum types
-        if isinstance(obj, Enum):
-            return obj.value if hasattr(obj, 'value') else str(obj)
-
-        # Handle objects with __dict__ (most aiohue objects)
-        if hasattr(obj, '__dict__'):
-            # Circular reference protection
-            obj_id = id(obj)
-            if obj_id in self._visited:
-                return f"<circular reference to {type(obj).__name__}>"
-
-            self._visited.add(obj_id)
-            try:
-                # Recursively convert nested objects
-                result = {}
-                for k, v in obj.__dict__.items():
-                    if k.startswith('_'):
-                        continue
-                    # Recursively handle nested objects
-                    if hasattr(v, '__dict__') and not isinstance(v, (str, int, float, bool, type(None))):
-                        result[k] = self.default(v)
-                    elif isinstance(v, list):
-                        result[k] = [self.default(item) if hasattr(item, '__dict__') else item for item in v]
-                    elif isinstance(v, dict):
-                        result[k] = {dk: (self.default(dv) if hasattr(dv, '__dict__') else dv) for dk, dv in v.items()}
-                    else:
-                        result[k] = v
-                return result
-            finally:
-                self._visited.discard(obj_id)
-
-        # Last resort: convert to string
-        return str(obj)
 
 # Default paths
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "bridges" / "config.json"
