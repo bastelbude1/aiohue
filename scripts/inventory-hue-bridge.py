@@ -63,10 +63,29 @@ from enum import Enum
 class CustomJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder to handle complex objects."""
     def default(self, obj):
+        # Handle Enum types
         if isinstance(obj, Enum):
             return str(obj.value) if hasattr(obj, 'value') else str(obj)
+
+        # Handle objects with __dict__ (most aiohue objects)
         if hasattr(obj, '__dict__'):
-            return {k: v for k, v in obj.__dict__.items() if not k.startswith('_')}
+            # Recursively convert nested objects
+            result = {}
+            for k, v in obj.__dict__.items():
+                if k.startswith('_'):
+                    continue
+                # Recursively handle nested objects
+                if hasattr(v, '__dict__') and not isinstance(v, (str, int, float, bool, type(None))):
+                    result[k] = self.default(v)
+                elif isinstance(v, list):
+                    result[k] = [self.default(item) if hasattr(item, '__dict__') else item for item in v]
+                elif isinstance(v, dict):
+                    result[k] = {dk: (self.default(dv) if hasattr(dv, '__dict__') else dv) for dk, dv in v.items()}
+                else:
+                    result[k] = v
+            return result
+
+        # Last resort: convert to string
         return str(obj)
 
 # Default paths
