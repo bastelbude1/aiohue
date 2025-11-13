@@ -173,9 +173,8 @@ class SceneValidator(hass.Hass):
 
         for entity_id in all_scenes.keys():
             # Monitor all scene entities - filtering happens later
-            # Listen to last_triggered attribute changes
-            self.listen_state(self.on_scene_state_changed, entity_id,
-                            attribute="last_triggered")
+            # Listen to state changes (scene state IS the activation timestamp)
+            self.listen_state(self.on_scene_state_changed, entity_id)
             scene_count += 1
             self.log(f"Monitoring: {entity_id}", level="DEBUG")
 
@@ -215,8 +214,8 @@ class SceneValidator(hass.Hass):
         """
         Handle scene state change (detects activations from ANY source).
 
-        This is called when last_triggered attribute changes, indicating
-        the scene was activated by:
+        This is called when scene state changes (state = activation timestamp).
+        Scene activated by:
         - Home Assistant (UI, automation, voice)
         - Hue app (mobile, desktop)
         - Physical Hue switches/dimmers
@@ -224,13 +223,13 @@ class SceneValidator(hass.Hass):
 
         Args:
             entity: Scene entity_id
-            _attribute: Attribute that changed (last_triggered) - unused but required by callback
-            old: Previous value
-            new: New value
+            _attribute: Attribute that changed (None for state) - unused but required by callback
+            old: Previous state (old timestamp)
+            new: New state (new timestamp indicating activation)
             _kwargs: Additional parameters - unused but required by callback
         """
-        # Skip if last_triggered didn't actually change
-        if old == new or new is None:
+        # Skip if state didn't actually change
+        if old == new or new is None or new == "unavailable":
             self.log(f"Skipping {entity} - no state change", level="DEBUG")
             return
 
@@ -252,13 +251,11 @@ class SceneValidator(hass.Hass):
                         f"(debounce: {self.validation_debounce}s)", level="DEBUG")
                 return
 
-        # Get scene unique_id for inventory lookup
-        scene_uid = self.get_state(entity, attribute="unique_id")
-
         self.log(f"Scene activated: {entity} (source: ANY - HA/Hue app/switch)")
 
         # Check if scene should be validated (filtering logic)
-        if not self.should_validate_scene(entity, scene_uid):
+        # Note: scene_uid not available in AppDaemon state attributes
+        if not self.should_validate_scene(entity, None):
             self.log(f"Skipping validation for {entity} (filtered out)")
             return
 
@@ -267,7 +264,7 @@ class SceneValidator(hass.Hass):
 
         # Schedule validation after transition delay
         self.run_in(self.perform_scene_validation, self.transition_delay,
-                    scene_entity=entity, scene_uid=scene_uid)
+                    scene_entity=entity)
 
     def should_validate_scene(self, entity_id: str, scene_uid: str) -> bool:
         """
@@ -392,16 +389,15 @@ class SceneValidator(hass.Hass):
         """
         try:
             scene_entity = kwargs.get('scene_entity')
-            scene_uid = kwargs.get('scene_uid')
 
-            if not scene_entity or not scene_uid:
+            if not scene_entity:
                 self.error("perform_scene_validation called without required parameters")
                 return
 
-            self.log(f"Starting validation: {scene_entity} (uid: {scene_uid})")
+            self.log(f"Starting validation: {scene_entity}")
 
-            # Find scene in inventory
-            scene_data = self.find_scene_in_inventory(scene_uid)
+            # Find scene in inventory by entity_id/name
+            scene_data = self.find_scene_in_inventory(scene_entity)
 
             if not scene_data:
                 self.error(f"Scene {scene_entity} not found in inventories")
@@ -477,26 +473,36 @@ class SceneValidator(hass.Hass):
             self.error(f"Traceback: {traceback.format_exc()}")
             self.record_failure()
 
-    def find_scene_in_inventory(self, scene_uid: str) -> Optional[Dict[str, Any]]:
+    def find_scene_in_inventory(self, entity_id: str) -> Optional[Dict[str, Any]]:
         """
-        Find scene data in loaded inventories.
+        Find scene data in loaded inventories by matching scene name.
 
         Args:
-            scene_uid: Scene unique_id
+            entity_id: Scene entity_id (e.g., scene.badezimmer_og_standard)
 
         Returns:
             Scene data dict or None if not found
         """
+        # Get scene attributes from HA
+        scene_state = self.get_state(entity_id, attribute="all")
+        if not scene_state:
+            return None
+
+        scene_attrs = scene_state.get('attributes', {})
+        scene_name = scene_attrs.get('name')  # e.g., "Standard"
+        group_name = scene_attrs.get('group_name')  # e.g., "Badezimmer OG"
+
+        if not scene_name:
+            return None
+
+        # Search inventories for matching scene
         for inventory in self.inventories:
             scenes = inventory.get('resources', {}).get('scenes', {}).get('items', [])
             for scene in scenes:
-                # Match by resource ID (precise UUID match with delimiters)
-                scene_id = scene.get('id')
-                if scene_id and (
-                    scene_uid.endswith(scene_id) or
-                    f"_{scene_id}" in scene_uid or
-                    f"-{scene_id}" in scene_uid
-                ):
+                # Match by scene name and optionally group name
+                inventory_scene_name = scene.get('metadata', {}).get('name')
+                if inventory_scene_name and inventory_scene_name == scene_name:
+                    # Found a name match - return this scene
                     return scene
 
         return None
