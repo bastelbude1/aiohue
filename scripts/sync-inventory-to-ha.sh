@@ -26,7 +26,11 @@ if [ -f "${HA_CONFIG_FILE}" ]; then
 
     # Resolve relative SSH key path
     if [ -n "${HA_SSH_KEY_REL}" ]; then
-        HA_SSH_KEY="${SCRIPT_DIR}/${HA_SSH_KEY_REL}"
+        if [[ "${HA_SSH_KEY_REL}" = /* ]]; then
+            HA_SSH_KEY="${HA_SSH_KEY_REL}"
+        else
+            HA_SSH_KEY="${SCRIPT_DIR}/${HA_SSH_KEY_REL}"
+        fi
     fi
 fi
 
