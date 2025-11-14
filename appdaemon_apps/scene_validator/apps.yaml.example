@@ -1,0 +1,39 @@
+scene_validator:
+  module: scene_validator
+  class: SceneValidator
+
+  # Inventory paths
+  inventory_dir: /homeassistant/hue_inventories
+
+  # Timing Configuration (all values in seconds)
+  transition_delay: 5              # Wait after scene activation before Level 1 validation (seconds)
+  validation_delay: 2              # Wait before Level 2 re-trigger validation (seconds, multiplied by 2x if only color_temp fails)
+  level3_settle_delay: 3           # Wait after Level 3 individual control before final validation (seconds)
+  validation_debounce: 30          # Prevent duplicate validations within this window (seconds)
+
+  # Validation Tolerances
+  color_temp_tolerance: 50         # Color temperature tolerance (mirek units, ±50 mirek)
+  brightness_tolerance: 5          # Brightness tolerance (percentage points, ±5%)
+  color_tolerance: 0.01            # XY color coordinate tolerance (CIE xy units, ±0.01)
+
+  # Debug Logging
+  debug_logging: true              # Enable verbose OK/success logging (true = show all checks, false = only failures)
+
+  # Rate Limiting (validations per minute)
+  max_validations_per_minute: 20             # Global rate limit (validations/minute)
+  max_validations_per_scene_per_minute: 5   # Per-scene rate limit (validations/minute)
+
+  # Circuit Breaker
+  circuit_breaker:
+    failure_threshold: 10          # Number of consecutive failures before circuit opens
+    success_threshold: 2           # Number of successes required to close circuit (from half-open state)
+    timeout: 600                   # Cooldown period when circuit is open (seconds, 10 minutes)
+
+  # Scene Filtering
+  scene_filter:
+    include_labels: []             # Hue scene labels to include (empty = use patterns instead)
+    exclude_labels: []             # Hue scene labels to exclude
+    exclude_uids: []               # Specific Hue scene IDs to exclude
+    name_patterns:                 # Regex patterns - validate scenes matching these patterns
+      - ".*Standard$"              # All scenes ending with "Standard"
+      - ".*Nachtlicht$"            # All scenes ending with "Nachtlicht"
