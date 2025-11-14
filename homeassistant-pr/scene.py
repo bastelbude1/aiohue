@@ -65,11 +65,12 @@ async def async_setup_entry(
     for item in api.scenes:
         async_add_entity(EventType.RESOURCE_ADDED, item)
 
-    # register listener for new items and updates (for scene activation detection)
+    # register listener for new items only
+    # (scene activation detection is handled by on_update() on existing entities)
     config_entry.async_on_unload(
         api.scenes.subscribe(
             async_add_entity,
-            event_filter=(EventType.RESOURCE_ADDED, EventType.RESOURCE_UPDATED),
+            event_filter=EventType.RESOURCE_ADDED,
         )
     )
 
@@ -227,6 +228,18 @@ class HueSmartSceneEntity(HueSceneEntityBase):
         """Return if this smart scene is currently active."""
         return self.resource.state == SmartSceneState.ACTIVE
 
+    def on_update(self) -> None:
+        """Handle EventStream updates for smart scene activation detection.
+
+        Smart scenes use .state instead of .status for activation tracking.
+        When a smart scene becomes active (from Hue app, automations, or schedules),
+        the scene state changes to ACTIVE, allowing us to record the activation.
+        """
+        # Check if smart scene became active (activated externally or via HA)
+        if self.resource.state == SmartSceneState.ACTIVE:
+            self._async_record_activation()
+        super().on_update()
+
     async def _async_activate(self, **kwargs: Any) -> None:
         """Activate Hue Smart scene."""
 
@@ -250,12 +263,15 @@ class HueSmartSceneEntity(HueSceneEntityBase):
             # lookup active scene in timeslot
             active_scene = None
             count = 0
+            target_id = self.resource.active_timeslot.timeslot_id
             for day_timeslot in self.resource.week_timeslots:
                 for timeslot in day_timeslot.timeslots:
-                    if count != self.resource.active_timeslot.timeslot_id:
-                        count += 1
-                        continue
-                    active_scene = self.controller.get(timeslot.target.rid)
+                    if count == target_id:
+                        active_scene = self.controller.get(timeslot.target.rid)
+                        break
+                    count += 1
+                # break outer loop if we found the target
+                if active_scene is not None:
                     break
             if active_scene is not None:
                 res["active_scene"] = active_scene.metadata.name

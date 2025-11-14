@@ -115,7 +115,7 @@ This is a **behavioral change** but should not break existing automations:
 
 ## Related Issues
 
-- Closes https://github.com/orgs/home-assistant/discussions/1446
+- Closes [home-assistant/discussions#1446](https://github.com/orgs/home-assistant/discussions/1446)
 - Implements same pattern as KNX integration (PR #151218)
 
 ## Dependencies
