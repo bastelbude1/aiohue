@@ -131,7 +131,7 @@ def on_update(self) -> None:
 
 ## Pattern Validation
 
-This implementation follows the **exact same pattern** as KNX scene activation (PR #151218, already merged):
+This implementation follows the **same pattern** as KNX scene activation (PR #151218, already merged):
 
 | Aspect | KNX Implementation | Hue Implementation | Match |
 |--------|-------------------|-------------------|-------|
