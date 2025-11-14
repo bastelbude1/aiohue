@@ -136,6 +136,7 @@ The implementation **WORKS CORRECTLY**. Scene entities now update their state wh
 - No entity registry pollution
 
 ### ✅ Matches Proven Pattern (KNX PR #151218)
+
 | Aspect | KNX Implementation | Our Implementation | Match |
 |--------|-------------------|-------------------|-------|
 | Base class | `BaseScene` | `BaseScene` | ✅ |
@@ -193,12 +194,12 @@ The implementation **WORKS CORRECTLY**. Scene entities now update their state wh
 **Documentation:** ✅ Complete
 **Functionality:** ✅ **VERIFIED WORKING** with real Hue bridge
 
-**🎉 READY FOR SUBMISSION TO home-assistant/core 🎉**
+### 🎉 READY FOR SUBMISSION TO home-assistant/core 🎉
 
 The implementation has been fully tested and verified to work correctly. Scene entities successfully detect and record activations from external sources (Hue mobile app, physical buttons, voice assistants, Hue automations), exactly as intended.
 
 ---
 
 **Testing performed by:** bastelbude1 & Claude Code
-**PR:** https://github.com/bastelbude1/aiohue/pull/10
+**PR:** [https://github.com/bastelbude1/aiohue/pull/10](https://github.com/bastelbude1/aiohue/pull/10)
 **Target:** home-assistant/core
