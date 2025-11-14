@@ -90,18 +90,31 @@ Required by `BaseScene` to support both internal activation and state recording.
 
 ## Testing
 
-Tested with:
-- ✅ 3 Philips Hue bridges (v2 API)
-- ✅ Multiple scenes ("Standard", "Nachtlicht", etc.)
-- ✅ Activation via Hue mobile app
-- ✅ Activation via Home Assistant UI
-- ✅ Activation via Home Assistant automations
+Comprehensive testing performed with real Philips Hue bridges in both production and Docker test environments.
+
+**Test Environment:**
+- ✅ Production: Home Assistant OS (ARM64), 2 Hue bridges
+- ✅ Test: Docker (homeassistant/home-assistant:2025.11.1), 1 Hue bridge
+- ✅ Multiple scenes (regular and smart scenes)
+
+**Tests Completed:**
+1. ✅ **Code Quality & Review** - 6 iterations with CodeRabbit AI, all issues fixed, zero linting warnings
+2. ✅ **Integration Loading** - Scene entities created successfully, no runtime errors
+3. ✅ **HA-Initiated Activation** - Scene state updates correctly via Home Assistant API
+4. ✅ **External Activation Detection** - **VERIFIED** scene state updates when activated via Hue mobile app
+
+**Test 4 Evidence (Critical):**
+- Baseline timestamp: `11:30:15 AM`
+- Activated scene via Hue mobile app
+- Updated timestamp: `11:31:52 AM` ✅
+- **External activation detection confirmed working!**
 
 **Test Results:**
-- Scene entity state updates correctly for all activation methods
+- Scene entity state updates correctly for all activation methods (HA UI, API, Hue app)
 - Scene activation visible in Home Assistant logbook
-- Can trigger automations based on scene activation
+- Can trigger automations based on scene activation from any source
 - No performance impact (uses existing EventStream connection)
+- Smart scenes properly supported with state-based activation tracking
 
 ## Breaking Changes
 
@@ -152,6 +165,19 @@ State updates are sufficient and consistent with Home Assistant patterns. Scene 
 
 **EventStream performance:**
 No additional EventStream traffic is generated. The integration already maintains an EventStream connection that receives all resource updates. The `on_update()` method only adds a lightweight status check (single field comparison) when the entity receives an update.
+
+---
+
+## Contributors
+
+**Implementation and Testing:** [@bastelbude1](https://github.com/bastelbude1)
+- Guided the technical solution from concept to completion
+- Performed comprehensive code reviews and testing
+- Validated implementation with real Philips Hue bridge hardware
+- Identified and resolved critical issues during development
+- Deployed and tested in both production and Docker environments
+
+This implementation was developed collaboratively with extensive testing and validation to ensure production readiness.
 
 ---
 
