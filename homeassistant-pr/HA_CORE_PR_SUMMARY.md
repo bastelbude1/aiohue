@@ -109,7 +109,7 @@ def on_update(self) -> None:
 ## Testing Evidence
 
 ### Test Environment
-- **Production:** Home Assistant OS (Odroid N2, ARM64), 2 Hue bridges
+- **Production:** Home Assistant OS (ARM64), 2 Hue bridges
 - **Test:** Docker (homeassistant/home-assistant:2025.11.1), 1 Hue bridge
 - **Hardware:** Real Philips Hue bridges (not simulated)
 

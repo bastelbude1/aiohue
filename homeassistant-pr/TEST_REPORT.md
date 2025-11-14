@@ -2,8 +2,8 @@
 
 ### Environment
 - **Home Assistant:** 2025.11.1
-- **System:** Home Assistant OS (Odroid N2, ARM64)
-- **Hue Bridges:** 2 configured (EG, OG)
+- **System:** Home Assistant OS (ARM64)
+- **Hue Bridges:** 2 configured
 - **aiohue Version:** 4.8.0 (verified in HA)
 - **Test Date:** 2025-11-14
 
@@ -45,10 +45,10 @@
 **Evidence:**
 ```bash
 # Scene entities successfully loaded
-scene.decke_og_nachtlicht
-scene.decke_og_hell
-scene.decke_og_volle_power_2
-scene.decke_og_standard
+scene.living_room_nightlight
+scene.living_room_bright
+scene.living_room_relax
+scene.living_room_concentrate
 ```
 
 ---
@@ -63,7 +63,7 @@ scene.decke_og_standard
 # Activate scene
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"entity_id": "scene.decke_og_standard"}' \
+  -d '{"entity_id": "scene.living_room_concentrate"}' \
   http://localhost:8123/api/services/scene/turn_on
 ```
 
@@ -85,8 +85,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 **Test Environment:**
 - **Platform:** Docker (homeassistant/home-assistant:2025.11.1)
 - **Modified File:** `/usr/src/homeassistant/homeassistant/components/hue/scene.py`
-- **Hue Bridge:** Real Philips Hue bridge (OG)
-- **Test Scene:** `scene.decke_og_standard`
+- **Hue Bridge:** Real Philips Hue bridge
+- **Test Scene:** `scene.living_room_concentrate`
 
 **Test Procedure:**
 1. Noted baseline timestamp: `11:30:15 AM`

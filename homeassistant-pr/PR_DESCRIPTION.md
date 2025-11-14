@@ -93,7 +93,7 @@ Required by `BaseScene` to support both internal activation and state recording.
 Comprehensive testing performed with real Philips Hue bridges in both production and Docker test environments.
 
 **Test Environment:**
-- ✅ Production: Home Assistant OS (Odroid N2, ARM64), 2 Hue bridges
+- ✅ Production: Home Assistant OS (ARM64), 2 Hue bridges
 - ✅ Test: Docker (homeassistant/home-assistant:2025.11.1), 1 Hue bridge
 - ✅ Multiple scenes (regular and smart scenes)
 
