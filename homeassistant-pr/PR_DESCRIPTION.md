@@ -142,11 +142,16 @@ This change enables powerful new use cases:
 
 The implementation is minimal (~20 lines added) and leverages existing infrastructure (EventStream, aiohue 4.8.0).
 
-## Questions for Reviewers
+## Design Decisions
 
-1. Should we add a config option to disable external activation detection?
-2. Should we fire a custom event (`hue_scene_activated`) in addition to state update?
-3. Any concerns about EventStream message volume with `RESOURCE_UPDATED`?
+**No config option to disable detection:**
+This feature aligns with KNX integration (PR #151218) which provides external scene activation detection without a config option. External activation detection is expected behavior for scene platforms using `BaseScene`, and disabling it would break the purpose of this enhancement.
+
+**No custom event fired:**
+State updates are sufficient and consistent with Home Assistant patterns. Scene entity state changes already trigger automations via state listeners. Adding a custom `hue_scene_activated` event would be redundant and add unnecessary maintenance burden.
+
+**EventStream performance:**
+No additional EventStream traffic is generated. The integration already maintains an EventStream connection that receives all resource updates. The `on_update()` method only adds a lightweight status check (single field comparison) when the entity receives an update.
 
 ---
 
