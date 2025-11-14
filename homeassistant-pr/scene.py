@@ -38,7 +38,7 @@ ATTR_BRIGHTNESS = "brightness"
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
+    _hass: HomeAssistant,
     config_entry: HueConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
@@ -240,7 +240,8 @@ class HueSmartSceneEntity(HueSceneEntityBase):
 
     async def _async_activate(self, **kwargs: Any) -> None:
         """Activate Hue Smart scene."""
-
+        # kwargs accepted for BaseScene contract but not used for smart scenes
+        _ = kwargs
         await self.bridge.async_request_call(
             self.controller.smart_scene.recall,
             self.resource.id,
