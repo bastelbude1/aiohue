@@ -23,6 +23,30 @@ Advanced integration features for reliability and monitoring:
 - **Circuit breaker** - Automatic kill switch for runaway automations
 - **Rate limiting** - Protect against rapid-fire validations
 
+## Current Status
+
+### ✅ Operational
+- **Scene Validator v2.0.0** - Deployed and running on Home Assistant
+- **Universal Scene Detection** - Detects activations from HA UI, Hue app, and physical switches
+- **3-Level Escalation** - Validate → Re-trigger → Individual control (operational)
+- **Inventory JSON Format** - Fixed to use proper JSON objects (not string representations)
+- **Circuit Breaker** - Active with 10-failure threshold and auto-recovery
+- **Rate Limiting** - Global (20/min) and per-scene (5/min) limits enforced
+- **Debouncing** - 30-second window prevents duplicate validations
+
+### ⚠️ Known Limitations
+- **Entity ID Mapping** - Level 1 validation limited by entity registry integration
+  - Falls back to Level 2 (re-trigger) which ensures reliability
+  - Full light state validation requires entity registry implementation
+  - See [Issue #10](https://github.com/bastelbude1/aiohue/issues/10) for details
+
+### 🔄 Recent Changes (PR #9)
+- Fixed inventory structure handling for nested bridge configurations
+- Changed scene monitoring to universal detection (all sources)
+- Fixed inventory JSON encoder to properly serialize Action objects
+- Added null safety checks for scene_uid parameter
+- All changes follow branch → PR workflow (no direct master pushes)
+
 ## Quick Start
 
 ### Hue Bridge Management
@@ -76,12 +100,15 @@ python3 export-ha-hue-inventory.py
 - ✅ JSON and human-readable output formats
 
 ### Home Assistant Integration
-- ✅ Scene validation with 3-level escalation
-- ✅ Entity registry mapping (Hue resource ID ↔ HA entity_id)
+- ✅ Scene validation with 3-level escalation (deployed & operational)
+- ✅ Universal scene detection (HA UI, Hue app, physical switches)
+- ⚠️ Entity registry mapping (Hue resource ID ↔ HA entity_id) - partial implementation
 - ✅ HA inventory export (SSH + API)
 - ✅ Inventory sync to HA server
-- ✅ Circuit breaker kill switch
+- ✅ Inventory JSON format (proper object serialization)
+- ✅ Circuit breaker kill switch with auto-recovery
 - ✅ Per-scene and global rate limiting
+- ✅ Validation debouncing (30s window)
 - ✅ Flexible scene filtering (labels, patterns, UIDs)
 - ✅ AppDaemon 4 integration
 

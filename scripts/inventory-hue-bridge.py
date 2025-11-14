@@ -57,17 +57,12 @@ import asyncio
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
-from enum import Enum
+# Import shared JSON encoder
+from common.json_utils import CustomJSONEncoder
 
+# NOTE: CustomJSONEncoder class moved to common/json_utils.py to avoid duplication
+# The encoder provides: enum handling, circular reference protection, recursive serialization
 
-class CustomJSONEncoder(json.JSONEncoder):
-    """Custom JSON encoder to handle complex objects."""
-    def default(self, obj):
-        if isinstance(obj, Enum):
-            return str(obj.value) if hasattr(obj, 'value') else str(obj)
-        if hasattr(obj, '__dict__'):
-            return {k: v for k, v in obj.__dict__.items() if not k.startswith('_')}
-        return str(obj)
 
 # Default paths
 DEFAULT_CONFIG_FILE = Path(__file__).parent.parent / "bridges" / "config.json"
@@ -301,7 +296,7 @@ async def inventory_bridge(bridge_ip: str, username: str, client_key: Optional[s
                         "type": str(scene.type) if hasattr(scene, 'type') else None,
                         "metadata": scene.metadata.__dict__ if hasattr(scene, 'metadata') and scene.metadata is not None else None,
                         "group": str(scene.group) if hasattr(scene, 'group') and scene.group is not None else None,
-                        "actions": [str(a) for a in scene.actions] if hasattr(scene, 'actions') and scene.actions is not None else []
+                        "actions": scene.actions if hasattr(scene, 'actions') and scene.actions is not None else []
                     }
                     for scene in scenes
                 ]

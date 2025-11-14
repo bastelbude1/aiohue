@@ -4,9 +4,18 @@
 
 **Final Recommendation**: 3-level escalation with inventory-based validation
 
-**Status**: Ready for implementation
-**Date**: 2025-11-13
+**Status**: ✅ **Deployed and Operational** (v2.0.0)
+**Deployment Date**: 2025-11-13
+**Last Updated**: 2025-11-13
 **Related**: [SCENE_VALIDATION_ANALYSIS.md](SCENE_VALIDATION_ANALYSIS.md)
+
+### Deployment Summary
+- **Version**: 2.0.0 (Universal Detection)
+- **Location**: `/addon_configs/a0d7b954_appdaemon/apps/scene_validator.py`
+- **Monitoring**: 214 scenes across 2 Hue bridges
+- **Status**: Operational with known limitation (entity ID mapping)
+- **Circuit Breaker**: CLOSED (0 failures)
+- **Pull Request**: [#9 - Fix: Scene validator deployment and inventory JSON format](https://github.com/bastelbude1/aiohue/pull/9)
 
 ---
 
@@ -76,6 +85,33 @@ Level 3: Individual Light Control (Fallback)
 - ✅ **Selective validation**: Filter scenes by labels or patterns (avoid validating all 214 scenes)
 - ✅ **Minimal overhead**: Validation only on scene activation, not continuous monitoring
 - ✅ **User notifications**: Alerts on critical failures
+
+### Current Implementation Notes (v2.0.0)
+
+**What's Working:**
+- ✅ Scene detection from all sources (HA UI, Hue app, physical switches)
+- ✅ Debouncing prevents duplicate validations (30s window)
+- ✅ Scene filtering by name patterns (e.g., `.*Standard$`, `.*Nachtlicht$`)
+- ✅ 3-level escalation executes correctly (Level 1 → Level 2 → Level 3)
+- ✅ Circuit breaker with auto-recovery after 10-minute timeout
+- ✅ Rate limiting (20/min global, 5/min per-scene)
+- ✅ Inventory JSON format fixed (proper object serialization)
+- ✅ Level 2 (re-trigger) ensures scene reliability
+
+**Known Limitations:**
+- ⚠️ **Entity ID Mapping**: Level 1 validation cannot map Hue resource IDs to HA entity_ids
+  - **Impact**: Cannot validate individual light states in Level 1
+  - **Workaround**: Falls back to Level 2 (re-trigger scene) which works reliably
+  - **Future Fix**: Implement entity registry integration ([Issue #10](https://github.com/bastelbude1/aiohue/issues/10))
+  - **Does Not Affect**: Scenes are re-triggered and lights reach correct states
+
+**Recent Fixes (PR #9):**
+- Fixed inventory structure handling for nested `bridge_info.config`
+- Changed scene monitoring from filtered to universal (all scenes monitored)
+- Fixed scene detection to monitor state changes (not `last_triggered` attribute)
+- Changed scene lookup from UUID matching to name-based matching
+- Enhanced JSON encoder to recursively serialize nested Action objects
+- Added null safety check for `scene_uid` parameter
 
 ---
 

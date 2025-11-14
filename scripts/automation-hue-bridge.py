@@ -64,17 +64,9 @@ import asyncio
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
-from enum import Enum
 
-
-class CustomJSONEncoder(json.JSONEncoder):
-    """Custom JSON encoder to handle complex objects."""
-    def default(self, obj):
-        if isinstance(obj, Enum):
-            return str(obj.value) if hasattr(obj, 'value') else str(obj)
-        if hasattr(obj, '__dict__'):
-            return {k: v for k, v in obj.__dict__.items() if not k.startswith('_')}
-        return str(obj)
+# Import shared JSON encoder (now with enum handling, circular reference protection, recursive serialization)
+from common.json_utils import CustomJSONEncoder
 
 
 # Default paths
