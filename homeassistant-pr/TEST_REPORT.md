@@ -201,5 +201,5 @@ The implementation has been fully tested and verified to work correctly. Scene e
 ---
 
 **Testing performed by:** bastelbude1 & Claude Code
-**PR:** [https://github.com/bastelbude1/aiohue/pull/10](https://github.com/bastelbude1/aiohue/pull/10)
+**PR:** [https://github.com/bastelbude1/aiohue/pull/11](https://github.com/bastelbude1/aiohue/pull/11)
 **Target:** home-assistant/core
