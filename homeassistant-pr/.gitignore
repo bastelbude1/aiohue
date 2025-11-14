@@ -1,0 +1,10 @@
+# Local testing files (contain sensitive data)
+TESTING_GUIDE.md
+README.md
+CONTRIBUTION_WORKFLOW.md
+STATUS.md
+
+# Local configuration and environment
+*.local
+.env
+config.json
