@@ -22,7 +22,7 @@ Currently, Hue scene entities in Home Assistant only update their state when act
 
 This PR implements external scene activation detection by:
 
-1. **Listening to EventStream updates** - Subscribe to `RESOURCE_UPDATED` events in addition to `RESOURCE_ADDED`
+1. **Listening to EventStream updates** - Entities listen for updates via `on_update()` method (only subscribe to `RESOURCE_ADDED` for entity creation)
 2. **Detecting activation via status field** - Monitor `scene.status.active` field changes (added in aiohue 4.8.0)
 3. **Recording activations** - Call `_async_record_activation()` when scenes become active
 4. **Using BaseScene** - Inherit from `BaseScene` instead of `SceneEntity` to enable state tracking
@@ -38,8 +38,8 @@ This follows the same pattern recently implemented for KNX scene activation dete
 - Change `Scene as SceneEntity` → `Scene as BaseScene`
 - Change `HueSceneEntityBase` base class: `SceneEntity` → `BaseScene`
 - Rename `async_activate()` → `_async_activate()` (both scene classes)
-- Add `on_update()` method to detect activation via EventStream
-- Update event subscription to include `EventType.RESOURCE_UPDATED`
+- Add `on_update()` method to detect activation via EventStream (entities listen for their own updates)
+- Smart scenes override `on_update()` to use `.state` instead of `.status` for activation tracking
 
 ### Key Changes Explained
 
@@ -53,18 +53,17 @@ class HueSceneEntityBase(HueBaseEntity, BaseScene):
 ```
 `BaseScene` provides state tracking capabilities that `SceneEntity` lacks.
 
-**2. Event Subscription (Lines 69-73):**
+**2. Event Subscription (Lines 70-74):**
 ```python
-# Before
-api.scenes.subscribe(async_add_entity, event_filter=EventType.RESOURCE_ADDED)
-
-# After
-api.scenes.subscribe(
-    async_add_entity,
-    event_filter=(EventType.RESOURCE_ADDED, EventType.RESOURCE_UPDATED),
+# Only subscribe to new scenes - activation is handled by on_update()
+config_entry.async_on_unload(
+    api.scenes.subscribe(
+        async_add_entity,
+        event_filter=EventType.RESOURCE_ADDED,
+    )
 )
 ```
-Now listens for scene updates in addition to creation.
+Entities listen for their own updates via the `on_update()` method inherited from `HueBaseEntity`.
 
 **3. Activation Detection (Lines 135-147):**
 ```python
