@@ -52,7 +52,9 @@ async def async_setup_entry(
 
     # add entities for all scenes
     @callback
-    def async_add_entity(resource: HueScene | HueSmartScene) -> None:
+    def async_add_entity(
+        event_type: EventType, resource: HueScene | HueSmartScene
+    ) -> None:
         """Add entity from Hue resource."""
         if isinstance(resource, HueSmartScene):
             async_add_entities([HueSmartSceneEntity(bridge, api.scenes, resource)])
@@ -61,7 +63,7 @@ async def async_setup_entry(
 
     # add all current items in controller
     for item in api.scenes:
-        async_add_entity(item)
+        async_add_entity(EventType.RESOURCE_ADDED, item)
 
     # register listener for new items only
     # (scene activation detection is handled by on_update() on existing entities)
@@ -118,6 +120,10 @@ class HueSceneEntityBase(HueBaseEntity, BaseScene):
             resource.status.last_recall
             if isinstance(resource, HueScene) and resource.status
             else None
+        )
+        # Track state for smart scene activation detection (smart scenes only)
+        self._previous_state = (
+            resource.state if isinstance(resource, HueSmartScene) else None
         )
 
     async def async_added_to_hass(self) -> None:
@@ -250,13 +256,25 @@ class HueSmartSceneEntity(HueSceneEntityBase):
     def on_update(self) -> None:
         """Handle EventStream updates for smart scene activation detection.
 
-        Smart scenes use .state instead of .status for activation tracking.
-        When a smart scene becomes active (from Hue app, automations, or schedules),
-        the scene state changes to ACTIVE, allowing us to record the activation.
+        Smart scenes use state transition detection to avoid false activations.
+        We only record activation when the state transitions TO active (not while
+        staying active), preventing false activations when lights are modified.
+
+        When a scene is activated, the state changes to ACTIVE.
+        When a light in an active scene is modified, the state stays ACTIVE.
         """
-        # Check if smart scene became active (activated externally or via HA)
-        if self.resource.state == SmartSceneState.ACTIVE:
+        current_state = self.resource.state
+
+        # Only record activation on state transition TO active
+        if (
+            current_state == SmartSceneState.ACTIVE
+            and self._previous_state != SmartSceneState.ACTIVE
+        ):
             self._async_record_activation()
+
+        # Update tracked state
+        self._previous_state = current_state
+
         super().on_update()
 
     async def _async_activate(self, **kwargs: Any) -> None:
