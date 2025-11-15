@@ -69,9 +69,9 @@ Restored `event_type` parameter to `async_add_entity()` callback.
 - Change `Scene as SceneEntity` → `Scene as BaseScene`
 - Change `HueSceneEntityBase` base class: `SceneEntity` → `BaseScene`
 - Rename `async_activate()` → `_async_activate()` (both scene classes)
-- Add `on_update()` method to detect activation via `last_recall` timestamp tracking
-- Track `_previous_last_recall` timestamp in `__init__()` for comparison
-- Smart scenes override `on_update()` to use `.state` instead of `.status` for activation tracking
+- Add `on_update()` method to detect activation via `last_recall` timestamp tracking (regular scenes only)
+- Track `_previous_last_recall` timestamp in `__init__()` for comparison (regular scenes only)
+- Smart scenes keep original `on_update()` logic using `.state == ACTIVE` (not updated with timestamp fix)
 
 ### Key Changes Explained
 
