@@ -186,8 +186,8 @@ async def test_tc3_fixed():
     try:
         await bridge.lights.set_brightness(light_id, 75)
         print(f"[ACTION] Modified light {light_id[:8]}... brightness to 75%")
-    except Exception as e:
-        print(f"[ERROR] Failed to modify light: {e}")
+    except (ConnectionError, TimeoutError, ValueError, KeyError, AttributeError) as e:
+        print(f"[ERROR] Failed to modify light: {type(e).__name__}: {e}")
         await bridge.close()
         return 2
 
