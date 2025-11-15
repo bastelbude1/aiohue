@@ -173,7 +173,7 @@ Comprehensive testing performed with real Philips Hue bridge in Docker test envi
 **Test Environment:**
 - ✅ Docker HA: homeassistant/home-assistant:2025.11.1
 - ✅ Real Hue Bridge: Connected to Docker HA instance
-- ✅ Multiple regular scenes tested (smart scenes not tested, but follow same pattern)
+- ✅ Multiple regular scenes tested (smart scenes not tested and use different activation logic)
 
 **Test Cases:**
 
