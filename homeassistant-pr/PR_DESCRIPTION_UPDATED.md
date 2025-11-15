@@ -39,19 +39,21 @@ This follows the same pattern recently implemented for KNX scene activation dete
 
 ### Review Feedback from @balloob
 
-**Issue 1: False activations on light modifications**
+#### Issue 1: False activations on light modifications
 > When monitoring `status.active`, modifying a light in an active scene triggers false activations because the scene remains active.
 
-**Fix (2d47831fba4):** Switched to tracking `status.last_recall` timestamp instead:
+#### Fix (2d47831fba4)
+Switched to tracking `status.last_recall` timestamp instead:
 - Only record activation when `last_recall` timestamp changes
 - When a scene is recalled, the bridge updates `last_recall`
 - When a light in an active scene is modified, `last_recall` stays unchanged
 - This prevents false activations while preserving external activation detection
 
-**Issue 2: Missing event_type parameter**
+#### Issue 2: Missing event_type parameter
 > `api.scenes.subscribe()` passes `event_type` as the first parameter to callbacks.
 
-**Fix (855803ca9f9):** Restored `event_type` parameter to `async_add_entity()` callback.
+#### Fix (855803ca9f9)
+Restored `event_type` parameter to `async_add_entity()` callback.
 
 ### Testing After Fixes
 - TC3 Test: Modified light in active scene → **0 false activations** ✅
@@ -200,7 +202,7 @@ Comprehensive testing performed with real Philips Hue bridge in Docker test envi
 **TC3 Test Evidence (Critical):**
 
 Test scenario: Modify light brightness while scene is active
-```
+```text
 [STEP 1] Activating scene via HA API
 [STEP 2] Checkpoint time recorded
 [STEP 3] Modifying light in scene (brightness to 75%)
@@ -238,7 +240,7 @@ This is a behavioral change but should not break existing automations:
 
 ## Dependencies
 
-- Requires **aiohue >= 4.8.0** (adds `scene.status.active` and `last_recall` fields)
+- Requires **aiohue >= 4.8.0** (provides `scene.status.last_recall` field for activation detection)
 - Home Assistant core already uses aiohue 4.8.0+
 
 ## Additional Notes
