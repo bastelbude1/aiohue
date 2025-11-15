@@ -241,17 +241,6 @@ This is a behavioral change but should not break existing automations:
 - Requires **aiohue >= 4.8.0** (adds `scene.status.active` and `last_recall` fields)
 - Home Assistant core already uses aiohue 4.8.0+
 
-## Checklist
-
-- [x] Code follows Home Assistant style guidelines
-- [x] Changes follow KNX integration pattern (PR #151218)
-- [x] Tested with real Hue bridges and scenes
-- [x] No new dependencies required
-- [x] Breaking change documented
-- [x] Review feedback addressed (event_type parameter, last_recall timestamp)
-- [ ] Tests added/updated (need assistance with test structure)
-- [ ] Documentation updated (need assistance with integration docs)
-
 ## Additional Notes
 
 This change enables powerful new use cases:
