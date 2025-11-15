@@ -219,9 +219,9 @@ class SceneValidator(hass.Hass):
         Note: This reads internal HA storage which may change between versions,
         but is the only reliable way to map external IDs to entity_ids.
         """
-        print(f"DEBUG: Loading entity registry mapping...")
+        self.log("Loading entity registry mapping...", level="DEBUG"))
         registry_file = Path("/homeassistant/.storage/core.entity_registry")
-        print(f"DEBUG: Registry file path: {registry_file}, exists: {registry_file.exists()}")
+        self.log(f"Registry file path: {registry_file}, exists: {registry_file.exists()}", level="DEBUG")
 
         if not registry_file.exists():
             self.error(f"Entity registry not found: {registry_file}")
@@ -246,7 +246,7 @@ class SceneValidator(hass.Hass):
                     self.hue_id_to_entity_id[unique_id] = entity_id
                     hue_count += 1
 
-            print(f"DEBUG: Loaded entity registry mapping: {hue_count} Hue entities")
+            self.log(f"Loaded entity registry mapping: {hue_count} Hue entities", level="DEBUG")
             self.log(f"Loaded entity registry mapping: {hue_count} Hue entities")
 
         except (FileNotFoundError, json.JSONDecodeError, PermissionError) as e:
@@ -551,7 +551,7 @@ class SceneValidator(hass.Hass):
             level2_delay = self.validation_delay * delay_multiplier
 
             try:
-                callback_handle = self.run_in(
+                self.run_in(
                     self.perform_level2_validation,
                     level2_delay,
                     scene_entity=scene_entity,
@@ -559,7 +559,7 @@ class SceneValidator(hass.Hass):
                     delay_multiplier=delay_multiplier  # Pass to Level 3
                 )
                 self.log(f"[{scene_entity}] [SCHEDULER] Level 2 validation scheduled in {level2_delay}s", level="INFO")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Broad catch to prevent scheduler failures from crashing app
                 self.error(f"[SCHEDULER ERROR] Failed to schedule Level 2 validation: {e}")
                 import traceback
                 self.error(f"Traceback: {traceback.format_exc()}")
@@ -637,14 +637,14 @@ class SceneValidator(hass.Hass):
 
             # Schedule Level 3 execution with adaptive delay
             try:
-                callback_handle = self.run_in(
+                self.run_in(
                     self.perform_level3_control,
                     level3_delay,
                     scene_entity=scene_entity,
                     scene_data=scene_data
                 )
                 self.log(f"[{scene_entity}] [SCHEDULER] Level 3 control scheduled in {level3_delay}s", level="INFO")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Broad catch to prevent scheduler failures from crashing app
                 self.error(f"[SCHEDULER ERROR] Failed to schedule Level 3 control: {e}")
                 import traceback
                 self.error(f"Traceback: {traceback.format_exc()}")
@@ -684,25 +684,22 @@ class SceneValidator(hass.Hass):
                 self.record_failure()
                 return
 
-            # CRITICAL: Wait for lights to settle, then validate final state
-            import time
-            time.sleep(self.level3_settle_delay)  # Give lights time to reach final state
+            # Schedule final validation after settle delay instead of blocking the worker thread
+            def _final_level3_validation(_kwargs):
+                self.log(
+                    f"[{scene_entity}] [LEVEL 3] Final validation after {self.level3_settle_delay}s settle delay",
+                    level="INFO",
+                )
+                self.last_validation_failures = []
+                if self.validate_scene_state(scene_entity, scene_data):
+                    self.log(f"[{scene_entity}] [OK] Level 3 successful - final validation PASSED")
+                    self.record_success()
+                else:
+                    self.error(f"[{scene_entity}] [FAIL] Level 3 control executed, but final validation FAILED")
+                    self.error(f"[{scene_entity}] [FAIL] Still failing: {set(self.last_validation_failures)}")
+                    self.record_failure()
 
-            self.log(f"[{scene_entity}] [LEVEL 3] Final validation after {self.level3_settle_delay}s settle delay", level="INFO")
-
-            # Reset failure tracking for final validation
-            self.last_validation_failures = []
-
-            # Perform final validation
-            if self.validate_scene_state(scene_entity, scene_data):
-                self.log(f"[{scene_entity}] [OK] Level 3 successful - final validation PASSED")
-                self.record_success()
-                return
-            else:
-                # Log what STILL failed after Level 3
-                self.error(f"[{scene_entity}] [FAIL] Level 3 control executed, but final validation FAILED")
-                self.error(f"[{scene_entity}] [FAIL] Still failing: {set(self.last_validation_failures)}")
-                self.record_failure()
+            self.run_in(_final_level3_validation, self.level3_settle_delay)
 
         except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
             self.error(f"Exception during level 3 control: {e}")

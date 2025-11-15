@@ -88,7 +88,7 @@ scene_validator:
 
 All logs follow a consistent `[scene] [light] [check] : info` format:
 
-```
+```text
 [scene.buro_markus_nachtlicht] LEVEL 1: Validating scene state
 [scene.buro_markus_nachtlicht] [light.ecklampe_markus_buro] [BRIGHTNESS] OK: exp 0.0%, got 0.0%, diff 0.0% < tol 5%
 [scene.buro_markus_nachtlicht] [light.ecklampe_markus_buro] [COLOR_TEMP] FAIL: exp 499, got 346, diff 153 > tol 50
