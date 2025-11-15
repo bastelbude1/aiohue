@@ -171,7 +171,7 @@ Comprehensive testing performed with real Philips Hue bridges in both production
 **Test Environment:**
 - ✅ Production: Home Assistant OS (ARM64), 2 Hue bridges
 - ✅ Test: Docker (homeassistant/home-assistant:2025.11.1), 1 Hue bridge
-- ✅ Multiple scenes (regular and smart scenes)
+- ✅ Multiple regular scenes tested (smart scenes not tested, but follow same pattern)
 
 **Tests Completed:**
 
@@ -195,13 +195,15 @@ Test scenario: Modify light brightness while scene is active
 ✅ SUCCESS - Light update while scene active did NOT trigger false activation
 ```
 
-**Test Results:**
+**Test Results (Regular Scenes):**
 - Scene entity state updates correctly for all activation methods (HA UI, API, Hue app)
 - Scene activation visible in Home Assistant logbook
 - Can trigger automations based on scene activation from any source
 - **No false activations** when lights in active scenes are modified
 - No performance impact (uses existing EventStream connection)
-- Smart scenes properly supported with state-based activation tracking
+
+**Note on Smart Scenes:**
+Smart scene code changes follow the same pattern as regular scenes but use `.state` field instead of `.status.last_recall`. Smart scenes were not tested with real hardware but the implementation mirrors the regular scene logic.
 
 ## Breaking Changes
 
