@@ -92,7 +92,7 @@ async def call_ha_api(endpoint, method="GET", data=None):
 
 async def get_scene_activations(since):
     """Get scene activations from history"""
-    end_time = datetime.now()
+    end_time = datetime.now(timezone.utc)
     history = await call_ha_api(
         f"history/period/{since.isoformat()}?filter_entity_id={TEST_SCENE_ENTITY}&end_time={end_time.isoformat()}"
     )
