@@ -219,7 +219,7 @@ class SceneValidator(hass.Hass):
         Note: This reads internal HA storage which may change between versions,
         but is the only reliable way to map external IDs to entity_ids.
         """
-        self.log("Loading entity registry mapping...", level="DEBUG"))
+        self.log("Loading entity registry mapping...", level="DEBUG")
         registry_file = Path("/homeassistant/.storage/core.entity_registry")
         self.log(f"Registry file path: {registry_file}, exists: {registry_file.exists()}", level="DEBUG")
 
