@@ -9,6 +9,7 @@ This is the definitive end-to-end validation.
 """
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -40,13 +41,22 @@ async def setup():
 
     # Load bridge config
     config_file = Path(__file__).parent.parent / "bridges" / "config.json"
-    with open(config_file) as f:
-        import json
-        data = json.load(f)
-        for bridge in data.get("bridges", []):
-            if bridge["ip"] == BRIDGE_IP:
-                BRIDGE_USERNAME = bridge["username"]
-                break
+    try:
+        with open(config_file) as f:
+            data = json.load(f)
+            for bridge in data.get("bridges", []):
+                if bridge.get("ip") == BRIDGE_IP:
+                    BRIDGE_USERNAME = bridge.get("username")
+                    break
+    except FileNotFoundError:
+        print(f"[ERROR] Bridge config file not found: {config_file}")
+        return False
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] Invalid JSON in bridge config: {e}")
+        return False
+    except Exception as e:
+        print(f"[ERROR] Failed to load bridge config: {e}")
+        return False
 
     if not HA_TOKEN or not BRIDGE_USERNAME:
         print("[ERROR] Configuration incomplete")
