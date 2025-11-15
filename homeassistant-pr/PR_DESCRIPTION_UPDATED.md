@@ -173,13 +173,29 @@ Comprehensive testing performed with real Philips Hue bridge in Docker test envi
 - ✅ Real Hue Bridge: Connected to Docker HA instance
 - ✅ Multiple regular scenes tested (smart scenes not tested, but follow same pattern)
 
-**Tests Completed:**
+**Test Cases:**
 
-1. ✅ **Code Quality & Review** - Multiple iterations with CodeRabbit AI and @balloob review feedback, all issues resolved
-2. ✅ **Integration Loading** - Scene entities created successfully, no runtime errors
-3. ✅ **HA-Initiated Activation** - Scene state updates correctly via Home Assistant API
-4. ✅ **External Activation Detection** - Scene state updates when activated via Hue mobile app
-5. ✅ **TC3: No False Activations** - Light modifications in active scene do NOT trigger activation records
+- ✅ **Code Quality & Review** - Multiple iterations with CodeRabbit AI and @balloob review feedback, all issues resolved
+
+**TC1: Integration Loading**
+- ✅ Scene entities created successfully
+- ✅ No runtime errors
+- ✅ EventStream subscription working
+
+**TC2: HA-Initiated Activation**
+- ✅ Scene state updates correctly via Home Assistant API
+- ✅ `scene.turn_on` service works as expected
+- ✅ Activation visible in logbook
+
+**TC3: No False Activations (Critical - balloob's bug)**
+- ✅ Light modifications in active scene do NOT trigger activation records
+- ✅ Only actual scene recalls are recorded
+- ✅ Timestamp-based detection prevents false positives
+
+**TC4: External Activation Detection**
+- ✅ Scene state updates when activated via Hue mobile app
+- ✅ External activations visible in Home Assistant
+- ✅ Can trigger automations based on external activation
 
 **TC3 Test Evidence (Critical):**
 
@@ -268,4 +284,4 @@ Based on @balloob's review feedback, tracking `last_recall` timestamp changes pr
 - Performed comprehensive code reviews and testing with AI assistance
 - Validated implementation with real Philips Hue bridge hardware in Docker test environment
 - Addressed review feedback from @balloob on false activations and event_type parameter
-- Tested TC3 scenario proving no false activations when lights are modified
+- Executed test cases TC1-TC4, with TC3 proving no false activations when lights are modified
