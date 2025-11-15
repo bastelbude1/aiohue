@@ -12,7 +12,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import aiohttp
 from aiohue.v2 import HueBridgeV2
 
@@ -34,7 +34,7 @@ async def setup():
     token_file = Path(__file__).parent / ".ha_docker_token"
     if token_file.exists():
         HA_TOKEN = token_file.read_text().strip()
-        print(f"[OK] Loaded Docker HA token")
+        print("[OK] Loaded Docker HA token")
     else:
         print(f"[ERROR] Token file not found: {token_file}")
         return False
@@ -103,12 +103,13 @@ async def get_scene_activations(since):
     activations = []
     for state in history[0]:
         if "last_changed" in state:
-            # Parse the timestamp (remove timezone for comparison)
-            state_time_str = state["last_changed"].replace("+00:00", "").replace("Z", "")
+            # Parse the timestamp with timezone awareness
+            state_time_str = state["last_changed"].replace("Z", "+00:00")
             state_time = datetime.fromisoformat(state_time_str)
 
-            # Only include activations AFTER the checkpoint (using simple comparison)
-            if state_time > since:
+            # Convert both to UTC for comparison
+            since_utc = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since
+            if state_time > since_utc:
                 activations.append({
                     "time": state["last_changed"],
                     "state": state.get("state", "")
@@ -135,9 +136,9 @@ async def test_tc3_fixed():
     bridge = HueBridgeV2(BRIDGE_IP, BRIDGE_USERNAME)
     try:
         await bridge.initialize()
-        print(f"[SETUP] Connected to bridge")
+        print("[SETUP] Connected to bridge")
     except AssertionError:
-        print(f"[SETUP] Connected (event stream in use - expected)")
+        print("[SETUP] Connected (event stream in use - expected)")
     except Exception as e:
         print(f"[ERROR] Bridge connection failed: {e}")
         return 2
@@ -158,15 +159,15 @@ async def test_tc3_fixed():
         await bridge.close()
         return 2
 
-    print(f"[ACTION] Scene activated via HA API")
+    print("[ACTION] Scene activated via HA API")
     await asyncio.sleep(3)  # Give time for activation to be recorded
 
     # Step 2: Record checkpoint
-    checkpoint = datetime.now() - timedelta(seconds=1)
+    checkpoint = datetime.now(timezone.utc) - timedelta(seconds=1)
     print(f"[STEP 2] Checkpoint time: {checkpoint}")
 
     # Step 3: Modify a light in the scene
-    print(f"[STEP 3] Modifying light in scene...")
+    print("[STEP 3] Modifying light in scene...")
     scene = bridge.scenes.get(TEST_SCENE_HUE_ID)
     if not scene or not scene.actions:
         print("[ERROR] Could not access scene or scene has no actions")
@@ -185,7 +186,7 @@ async def test_tc3_fixed():
     await asyncio.sleep(3)  # Give time for any potential false activation
 
     # Step 4: Check for activations AFTER checkpoint
-    print(f"[STEP 4] Checking for activations after checkpoint...")
+    print("[STEP 4] Checking for activations after checkpoint...")
     activations = await get_scene_activations(checkpoint)
 
     print(f"\n[RESULT] Activations after checkpoint: {len(activations)}")
@@ -206,7 +207,7 @@ async def test_tc3_fixed():
         print("\nThe fix is ready for submission to home-assistant/core!")
         return 0
     else:
-        print(f"\n❌ [FAIL] TC3 FAILED")
+        print("\n❌ [FAIL] TC3 FAILED")
         print(f"Expected 0 activations, got {len(activations)}")
         print("\nThis indicates the fix is not working correctly.")
         print("The fixed code may not be loaded or there's an issue with the logic.")
