@@ -219,7 +219,7 @@ Test scenario: Modify light brightness while scene is active
 - No performance impact (uses existing EventStream connection)
 
 **Note on Smart Scenes:**
-Smart scene code changes follow the same pattern as regular scenes but use `.state` field instead of `.status.last_recall`. Smart scenes were not tested with real hardware but the implementation mirrors the regular scene logic.
+Smart scenes were **not updated** with the timestamp-based fix applied to regular scenes. They still use the original logic (checking `state == ACTIVE`) which may have the same false activation issue. Smart scenes were not tested with real hardware, so it's unknown if they experience the same problem. The timestamp fix (using `last_recall`) was only implemented for regular scenes (HueScene), not smart scenes (HueSmartScene).
 
 ## Breaking Changes
 
