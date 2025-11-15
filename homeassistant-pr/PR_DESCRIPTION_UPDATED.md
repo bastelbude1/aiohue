@@ -263,9 +263,9 @@ Based on @balloob's review feedback, tracking `last_recall` timestamp changes pr
 
 ## Contributors
 
-**Implementation and Testing:** @bastelbude1
+**Implementation and Testing:** @bastelbude1, Claude Code and CodeRabbit
 - Guided the technical solution from concept to completion
-- Performed comprehensive code reviews and testing with AI assistance (CodeRabbit)
+- Performed comprehensive code reviews and testing with AI assistance
 - Validated implementation with real Philips Hue bridge hardware in Docker test environment
 - Addressed review feedback from @balloob on false activations and event_type parameter
 - Tested TC3 scenario proving no false activations when lights are modified
