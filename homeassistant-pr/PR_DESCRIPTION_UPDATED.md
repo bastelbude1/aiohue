@@ -263,20 +263,6 @@ This change enables powerful new use cases:
 
 The implementation is minimal (~40 lines added) and leverages existing infrastructure (EventStream, aiohue 4.8.0).
 
-## Design Decisions
-
-**No config option to disable detection:**
-This feature aligns with KNX integration (PR #151218) which provides external scene activation detection without a config option. External activation detection is expected behavior for scene platforms using `BaseScene`, and disabling it would break the purpose of this enhancement.
-
-**No custom event fired:**
-State updates are sufficient and consistent with Home Assistant patterns. Scene entity state changes already trigger automations via state listeners. Adding a custom `hue_scene_activated` event would be redundant and add unnecessary maintenance burden.
-
-**EventStream performance:**
-No additional EventStream traffic is generated. The integration already maintains an EventStream connection that receives all resource updates. The `on_update()` method only adds a lightweight timestamp comparison when the entity receives an update.
-
-**Using last_recall timestamp instead of status.active:**
-Based on @balloob's review feedback, tracking `last_recall` timestamp changes provides accurate activation detection while preventing false activations when lights in active scenes are modified. This is the correct approach for distinguishing scene recalls from light modifications.
-
 ## Contributors
 
 **Implementation and Testing:** @bastelbude1, Claude Code and CodeRabbit
