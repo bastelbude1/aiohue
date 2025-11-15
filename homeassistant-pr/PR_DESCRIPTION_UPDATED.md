@@ -166,11 +166,11 @@ Required by `BaseScene` to support both internal activation and state recording.
 
 ## Testing
 
-Comprehensive testing performed with real Philips Hue bridges in both production and Docker test environments.
+Comprehensive testing performed with real Philips Hue bridge in Docker test environment.
 
 **Test Environment:**
-- ✅ Production: Home Assistant OS (ARM64), 2 Hue bridges
-- ✅ Test: Docker (homeassistant/home-assistant:2025.11.1), 1 Hue bridge
+- ✅ Docker HA: homeassistant/home-assistant:2025.11.1
+- ✅ Real Hue Bridge: Connected to Docker HA instance
 - ✅ Multiple regular scenes tested (smart scenes not tested, but follow same pattern)
 
 **Tests Completed:**
@@ -266,8 +266,8 @@ Based on @balloob's review feedback, tracking `last_recall` timestamp changes pr
 **Implementation and Testing:** @bastelbude1
 - Guided the technical solution from concept to completion
 - Performed comprehensive code reviews and testing with AI assistance (CodeRabbit)
-- Validated implementation with real Philips Hue bridge hardware
+- Validated implementation with real Philips Hue bridge hardware in Docker test environment
 - Addressed review feedback from @balloob on false activations and event_type parameter
-- Deployed and tested in both production and Docker environments
+- Tested TC3 scenario proving no false activations when lights are modified
 
 This implementation was developed through an iterative process with extensive testing, code review, and validation to ensure production readiness.
