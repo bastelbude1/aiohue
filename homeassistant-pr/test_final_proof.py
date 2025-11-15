@@ -137,10 +137,18 @@ async def test_tc3_fixed():
     try:
         await bridge.initialize()
         print("[SETUP] Connected to bridge")
-    except AssertionError:
-        print("[SETUP] Connected (event stream in use - expected)")
+    except (ConnectionError, TimeoutError, OSError) as e:
+        print(f"[ERROR] Bridge connection failed: {type(e).__name__}: {e}")
+        print(f"[ERROR] Check bridge IP ({BRIDGE_IP}) and network connectivity")
+        return 2
+    except (KeyError, TypeError, ValueError) as e:
+        print(f"[ERROR] Bridge initialization failed: {type(e).__name__}: {e}")
+        print(f"[ERROR] Check bridge credentials and API compatibility")
+        return 2
     except Exception as e:
-        print(f"[ERROR] Bridge connection failed: {e}")
+        print(f"[ERROR] Unexpected error during bridge initialization: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return 2
 
     print()
