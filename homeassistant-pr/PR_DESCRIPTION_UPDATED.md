@@ -69,12 +69,13 @@ Applied state transition detection to smart scenes:
 - This prevents false activations while preserving activation detection
 
 ### Testing After All Fixes
-**Regular Scenes (TC3):**
+
+#### Regular Scenes (TC3)
 - Modified light in active scene → **0 false activations** ✅
 - External activation via Hue app → **Correctly detected** ✅
 - HA-initiated activation → **Correctly detected** ✅
 
-**Smart Scenes (TC3-SS):**
+#### Smart Scenes (TC3-SS)
 - Modified light in active smart scene → **0 false activations** ✅
 - Smart scene activation detection → **Working correctly** ✅
 
@@ -247,12 +248,12 @@ Comprehensive testing performed with real Philips Hue bridge in Docker test envi
 - ✅ External activations visible in Home Assistant
 - ✅ Can trigger automations based on external activation
 
-**TC3-SS: Smart Scene False Activation Test (Critical)**
+#### TC3-SS: Smart Scene False Activation Test (Critical)
 - ✅ Light modifications in active smart scene do NOT trigger activation records
 - ✅ Only actual smart scene activations are recorded
 - ✅ State-transition detection prevents false positives
 
-**TC3 Test Evidence (Regular Scenes - Critical):**
+#### TC3 Test Evidence (Regular Scenes - Critical)
 
 Test scenario: Modify light brightness while scene is active
 ```text
@@ -266,7 +267,7 @@ Test scenario: Modify light brightness while scene is active
 ✅ SUCCESS - Light update while scene active did NOT trigger false activation
 ```
 
-**TC3-SS Test Evidence (Smart Scenes - Critical):**
+#### TC3-SS Test Evidence (Smart Scenes - Critical)
 
 Test scenario: Modify light brightness while smart scene is active
 ```text
