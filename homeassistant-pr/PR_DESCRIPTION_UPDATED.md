@@ -25,7 +25,9 @@ Currently, Hue scene entities in Home Assistant only update their state when act
 This PR implements external scene activation detection by:
 
 1. **Listening to EventStream updates** - Entities listen for updates via `on_update()` method (only subscribe to `RESOURCE_ADDED` for entity creation)
-2. **Detecting activation via last_recall timestamp** - Monitor `scene.status.last_recall` timestamp changes to distinguish actual activations from light modifications
+2. **Detecting activations** - Two approaches based on scene type:
+   - **Regular scenes:** Monitor `scene.status.last_recall` timestamp changes
+   - **Smart scenes:** Track state transitions (INACTIVE → ACTIVE)
 3. **Recording activations** - Call `_async_record_activation()` when scenes are actually recalled
 4. **Using BaseScene** - Inherit from `BaseScene` instead of `SceneEntity` to enable state tracking
 
@@ -173,7 +175,35 @@ def on_update(self) -> None:
 ```
 When the bridge recalls a scene (from any source), it updates `status.last_recall` timestamp. This triggers state recording **only when the timestamp changes**, preventing false activations from light modifications.
 
-**5. Method Rename (Lines 193, 264):**
+**5. Smart Scene State Transition Detection (Lines 256-278):**
+```python
+def on_update(self) -> None:
+    """Handle EventStream updates for smart scene activation detection.
+
+    Smart scenes use state transition detection to avoid false activations.
+    We only record activation when the state transitions TO active (not while
+    staying active), preventing false activations when lights are modified.
+
+    When a scene is activated, the state changes to ACTIVE.
+    When a light in an active scene is modified, the state stays ACTIVE.
+    """
+    current_state = self.resource.state
+
+    # Only record activation on state transition TO active
+    if (
+        current_state == SmartSceneState.ACTIVE
+        and self._previous_state != SmartSceneState.ACTIVE
+    ):
+        self._async_record_activation()
+
+    # Update tracked state
+    self._previous_state = current_state
+
+    super().on_update()
+```
+Smart scenes override the base `on_update()` method to use state transition detection instead of timestamp tracking. This prevents false activations when lights in an active smart scene are modified.
+
+**6. Method Rename (Lines 193, 264):**
 ```python
 # Before
 async def async_activate(self, **kwargs: Any) -> None:
@@ -217,7 +247,12 @@ Comprehensive testing performed with real Philips Hue bridge in Docker test envi
 - ✅ External activations visible in Home Assistant
 - ✅ Can trigger automations based on external activation
 
-**TC3 Test Evidence (Critical):**
+**TC3-SS: Smart Scene False Activation Test (Critical)**
+- ✅ Light modifications in active smart scene do NOT trigger activation records
+- ✅ Only actual smart scene activations are recorded
+- ✅ State-transition detection prevents false positives
+
+**TC3 Test Evidence (Regular Scenes - Critical):**
 
 Test scenario: Modify light brightness while scene is active
 ```text
@@ -231,7 +266,21 @@ Test scenario: Modify light brightness while scene is active
 ✅ SUCCESS - Light update while scene active did NOT trigger false activation
 ```
 
-**Test Results (Regular Scenes):**
+**TC3-SS Test Evidence (Smart Scenes - Critical):**
+
+Test scenario: Modify light brightness while smart scene is active
+```text
+[STEP 1] Activating smart scene via HA API
+[STEP 2] Checkpoint time recorded
+[STEP 3] Modifying light in room (brightness to 50%)
+[STEP 4] Checking for activations after checkpoint...
+
+[RESULT] Activations after checkpoint: 0
+
+✅ SUCCESS - Light update while smart scene active did NOT trigger false activation
+```
+
+**Test Results:**
 - Scene entity state updates correctly for all activation methods (HA UI, API, Hue app)
 - Scene activation visible in Home Assistant logbook
 - Can trigger automations based on scene activation from any source
@@ -258,7 +307,7 @@ This is a behavioral change but should not break existing automations:
 
 ## Dependencies
 
-- Requires **aiohue >= 4.8.0** (provides `scene.status.last_recall` field for activation detection)
+- Requires **aiohue >= 4.8.0** (provides `scene.status.last_recall` field for regular scene activation detection, and `SmartScene.state` for smart scene detection)
 - Home Assistant core already uses aiohue 4.8.0+
 
 ## Additional Notes
@@ -279,4 +328,5 @@ The implementation is minimal (~40 lines added) and leverages existing infrastru
 - Performed comprehensive code reviews and testing with AI assistance
 - Validated implementation with real Philips Hue bridge hardware in Docker test environment
 - Addressed review feedback from @balloob on false activations and event_type parameter
-- Executed test cases TC1-TC4, with TC3 proving no false activations when lights are modified
+- Executed test cases TC1-TC4 for regular scenes and TC3-SS for smart scenes
+- Both TC3 and TC3-SS proved no false activations when lights are modified in active scenes
