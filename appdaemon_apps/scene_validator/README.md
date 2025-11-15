@@ -28,6 +28,8 @@ AppDaemon automation for validating Philips Hue scene activations in Home Assist
 
 ## Configuration
 
+📖 **For detailed information about how AppDaemon configuration works, see [CONFIGURATION.md](CONFIGURATION.md)**
+
 See `apps.yaml.example` for all available parameters:
 
 ```yaml
