@@ -218,6 +218,10 @@ class SceneValidator(hass.Hass):
 
         Note: This reads internal HA storage which may change between versions,
         but is the only reliable way to map external IDs to entity_ids.
+
+        Compatibility: Tested with Home Assistant 2025.11.x
+        The entity registry structure (data.entities[]) has been stable since HA 2021.x,
+        but future HA versions may change the internal storage format.
         """
         self.log("Loading entity registry mapping...", level="DEBUG")
         registry_file = Path("/homeassistant/.storage/core.entity_registry")
@@ -231,6 +235,12 @@ class SceneValidator(hass.Hass):
         try:
             with open(registry_file) as f:
                 registry = json.load(f)
+
+            # Validate expected structure exists
+            if 'data' not in registry or 'entities' not in registry.get('data', {}):
+                self.error("Entity registry structure has changed - expected 'data.entities' not found")
+                self.error("This may indicate a Home Assistant update that changed the internal storage format")
+                return
 
             entities = registry.get('data', {}).get('entities', [])
 
@@ -345,7 +355,7 @@ class SceneValidator(hass.Hass):
             _kwargs: Additional parameters - unused but required by callback
         """
         # Skip if state didn't actually change
-        if old == new or new is None or new == "unavailable":
+        if old == new or new is None or new in ("unavailable", "unknown"):
             self.log(f"Skipping {entity} - no state change", level="DEBUG")
             return
 
@@ -955,7 +965,7 @@ class SceneValidator(hass.Hass):
 
                 # Convert percentage to 0-255
                 brightness = int((brightness_pct / 100) * 255)
-                service_data['brightness'] = max(brightness, 1)  # Ensure at least 1 in HA scale
+                service_data['brightness'] = max(1, min(brightness, 255))  # Clamp to valid range 1-255
 
             # Color (XY)
             color = expected.get('color', {})
