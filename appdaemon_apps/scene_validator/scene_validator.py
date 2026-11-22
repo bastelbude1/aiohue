@@ -268,6 +268,26 @@ def classify_off_check(
     return ("missed", missed)
 
 
+def all_expected_on_lights_switched_off(
+    expected_on: List[str],
+    lights_now: Dict[str, Dict[str, Any]],
+    activated_at: datetime,
+) -> bool:
+    """True if every light the scene expects ON was switched off after the activation.
+
+    Deliberate room off (e.g. Hue app) without a switch press. Requires a
+    non-empty expected_on, every entity known, off, and last_updated >=
+    activated_at (a light that is off but unchanged missed the scene command).
+    """
+    if not expected_on:
+        return False
+    for entity in expected_on:
+        light = lights_now.get(entity)
+        if not light or light["state"] != "off" or light["last_updated"] < activated_at:
+            return False
+    return True
+
+
 class SceneValidator(hass.Hass):
     """
     AppDaemon app that validates Hue scene activations with fallback.
@@ -763,6 +783,7 @@ class SceneValidator(hass.Hass):
                     scene_data=kwargs.get('scene_data'),
                     delay_multiplier=kwargs.get('delay_multiplier', 1),
                     activation_seq=kwargs.get('activation_seq'),
+                    activated_at=kwargs.get('activated_at'),
                     off_deferred=True)
         return True
 
@@ -807,7 +828,39 @@ class SceneValidator(hass.Hass):
 
         # Schedule validation after transition delay
         self.run_in(self.perform_scene_validation, self.transition_delay,
-                    scene_entity=entity, activation_seq=activation_seq)
+                    scene_entity=entity, activation_seq=activation_seq,
+                    activated_at=self.get_now())
+
+    def _deliberate_room_off(self, scene_entity: str, scene_data: Dict[str, Any],
+                             activated_at: Optional[datetime], step: str) -> bool:
+        """True (and logs a skip) if all scene lights were switched off after activation."""
+        if not isinstance(activated_at, datetime):
+            return False
+        actions = scene_data.get('actions', []) if isinstance(scene_data, dict) else []
+        if self._is_legacy_action_format(actions):
+            return False
+        expected_on: List[str] = []
+        for action in actions:
+            if (action.get('action', {}).get('on') or {}).get('on') is not True:
+                continue
+            rid = action.get('target', {}).get('rid')
+            entity = self.get_entity_id_from_hue_id(rid) if rid else None
+            if not entity:
+                return False  # cannot map an expected-on light: not provably all off
+            if entity not in expected_on:
+                expected_on.append(entity)
+        lights_now = {}
+        for entity in expected_on:
+            state = self.get_state(entity, attribute="all") or {}
+            last_updated = self._parse_ts(state.get('last_updated'))
+            if state.get('state') in (None, "unavailable", "unknown") or last_updated is None:
+                continue
+            lights_now[entity] = {"state": state['state'], "last_updated": last_updated}
+        if not all_expected_on_lights_switched_off(expected_on, lights_now, activated_at):
+            return False
+        self.log(f"[{scene_entity}] [SKIP] {step} - all scene lights switched off "
+                 f"after activation (deliberate room off)")
+        return True
 
     def should_validate_scene(self, entity_id: str, scene_uid: str) -> bool:
         """
@@ -939,6 +992,7 @@ class SceneValidator(hass.Hass):
         try:
             scene_entity = kwargs.get('scene_entity')
             activation_seq = kwargs.get('activation_seq')
+            activated_at = kwargs.get('activated_at')
 
             if not scene_entity:
                 self.error("perform_scene_validation called without required parameters")
@@ -986,6 +1040,9 @@ class SceneValidator(hass.Hass):
             # LEVEL 2: Re-trigger scene (async scheduling to avoid blocking)
             if self._abort_if_superseded(scene_entity, activation_seq, "Level 2 re-trigger"):
                 return
+            if self._deliberate_room_off(scene_entity, scene_data, activated_at,
+                                         "Level 2 re-trigger"):
+                return
             self.log(f"[{scene_entity}] LEVEL 2: Re-triggering scene")
             self.call_service("scene/turn_on", entity_id=scene_entity)
 
@@ -1000,6 +1057,7 @@ class SceneValidator(hass.Hass):
                     scene_data=scene_data,
                     delay_multiplier=delay_multiplier,  # Pass to Level 3
                     activation_seq=activation_seq,
+                    activated_at=activated_at,
                 )
                 self.log(f"[{scene_entity}] [SCHEDULER] Level 2 validation scheduled in {level2_delay}s", level="INFO")
             except Exception as e:  # noqa: BLE001 - Broad catch to prevent scheduler failures from crashing app
@@ -1031,6 +1089,7 @@ class SceneValidator(hass.Hass):
             scene_data = kwargs.get('scene_data')
             level1_delay_multiplier = kwargs.get('delay_multiplier', 1)
             activation_seq = kwargs.get('activation_seq')
+            activated_at = kwargs.get('activated_at')
 
             self.log(f"[{scene_entity}] [LEVEL 2] Validating (delay_multiplier={level1_delay_multiplier})", level="INFO")
 
@@ -1042,6 +1101,9 @@ class SceneValidator(hass.Hass):
                 return
             if self._defer_for_pending_off(self.perform_level2_validation, kwargs,
                                            "Level 2 validation"):
+                return
+            if self._deliberate_room_off(scene_entity, scene_data, activated_at,
+                                         "Level 2 validation"):
                 return
 
             # Check if validation is possible (inventory format)
@@ -1093,6 +1155,7 @@ class SceneValidator(hass.Hass):
                     scene_entity=scene_entity,
                     scene_data=scene_data,
                     activation_seq=activation_seq,
+                    activated_at=activated_at,
                 )
                 self.log(f"[{scene_entity}] [SCHEDULER] Level 3 control scheduled in {level3_delay}s", level="INFO")
             except Exception as e:  # noqa: BLE001 - Broad catch to prevent scheduler failures from crashing app
@@ -1123,6 +1186,7 @@ class SceneValidator(hass.Hass):
             scene_entity = kwargs.get('scene_entity')
             scene_data = kwargs.get('scene_data')
             activation_seq = kwargs.get('activation_seq')
+            activated_at = kwargs.get('activated_at')
 
             self.log(f"[{scene_entity}] [LEVEL 3] Controlling lights individually", level="INFO")
 
@@ -1133,6 +1197,9 @@ class SceneValidator(hass.Hass):
             if self._abort_if_superseded(scene_entity, activation_seq, "Level 3 control"):
                 return
             if self._defer_for_pending_off(self.perform_level3_control, kwargs, "Level 3 control"):
+                return
+            if self._deliberate_room_off(scene_entity, scene_data, activated_at,
+                                         "Level 3 control"):
                 return
 
             # Control lights individually
