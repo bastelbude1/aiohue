@@ -40,6 +40,8 @@ class FakeHass:
         self.listeners.append((callback.__name__, entity_id))
 
     def get_state(self, entity_id=None, attribute=None, **_kwargs):
+        if attribute == "all":
+            return getattr(self, "full_states", {}).get(entity_id)
         if attribute is not None:
             return self.attributes.get(entity_id, {}).get(attribute)
         if entity_id in ("scene", "select"):

@@ -21,10 +21,10 @@ Requirements:
 - Hue bridge inventories in /homeassistant/hue_inventories/
 
 Author: Scene Validator
-Version: 2.3.1 (Do not validate scenes superseded by a newer activation)
+Version: 2.3.2 (Color temperature in kelvin for HA 2026.x)
 """
 
-__VERSION__ = "2.3.1"
+__VERSION__ = "2.3.2"
 
 import appdaemon.plugins.hass.hassapi as hass
 import json
@@ -34,6 +34,19 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 SCENE_SELECT_SUFFIX = "_scene_select"
+
+
+def _mired_to_kelvin(mired: float) -> int:
+    """Hue scenes store mired; HA 2026.x light.turn_on only accepts color_temp_kelvin."""
+    return round(1_000_000 / mired)
+
+
+def _actual_mired(attrs: Dict[str, Any]) -> Optional[float]:
+    """Light's color temperature in mired (HA 2026.x states only have color_temp_kelvin)."""
+    if attrs.get('color_temp'):
+        return attrs['color_temp']
+    kelvin = attrs.get('color_temp_kelvin')
+    return 1_000_000 / kelvin if kelvin else None
 _GROUP_RID_RE = re.compile(r"rid='([^']+)'")
 
 
@@ -1065,10 +1078,11 @@ class SceneValidator(hass.Hass):
         if 'color_temperature' in expected:
             if expected['color_temperature']:
                 expected_ct = expected['color_temperature'].get('mirek')
-                actual_ct = actual_attrs.get('color_temp')
+                actual_ct = _actual_mired(actual_attrs)
 
-                # Only validate if light has color_temp in state (skip if in XY mode)
-                if actual_ct:
+                # Only validate if light reports a color temperature (skip if in XY mode)
+                if expected_ct and actual_ct:
+                    actual_ct = round(actual_ct)
                     diff = abs(expected_ct - actual_ct)
                     if diff > self.color_temp_tolerance:
                         self.log(f"[{scene_entity}] [{entity_id}] [COLOR_TEMP] FAIL: exp {expected_ct}, got {actual_ct}, diff {diff} > tol {self.color_temp_tolerance}", level="WARNING")
@@ -1150,7 +1164,7 @@ class SceneValidator(hass.Hass):
                 if expected['color_temperature']:
                     ct = expected['color_temperature'].get('mirek')
                     if ct:
-                        service_data['color_temp'] = ct
+                        service_data['color_temp_kelvin'] = _mired_to_kelvin(ct)
 
             # Turn on light with parameters
             self.call_service("light/turn_on", **service_data)
