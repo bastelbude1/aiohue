@@ -59,6 +59,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 # Import shared JSON encoder
 from common.json_utils import CustomJSONEncoder
+import hue_inventory_extras as extras
 
 # NOTE: CustomJSONEncoder class moved to common/json_utils.py to avoid duplication
 # The encoder provides: enum handling, circular reference protection, recursive serialization
@@ -249,7 +250,8 @@ async def inventory_bridge(bridge_ip: str, username: str, client_key: Optional[s
                         "type": str(device.type) if hasattr(device, 'type') else None,
                         "product_data": device.product_data.__dict__ if hasattr(device, 'product_data') else None,
                         "metadata": device.metadata.__dict__ if hasattr(device, 'metadata') else None,
-                        "services": [str(s) for s in device.services] if hasattr(device, 'services') else []
+                        "services": [str(s) for s in device.services] if hasattr(device, 'services') else [],
+                        **extras.device_extras(device)
                     }
                     for device in devices
                 ]
@@ -311,34 +313,17 @@ async def inventory_bridge(bridge_ip: str, username: str, client_key: Optional[s
             print(f"      🏠 Retrieving groups (zones/rooms)...")
             groups = bridge.groups.items
 
-            zones = [g for g in groups if g.type == "zone"]
-            rooms = [g for g in groups if g.type == "room"]
+            rooms, zones = extras.split_groups(groups)
 
             inventory["resources"]["groups"] = {
                 "total_count": len(groups),
                 "zones": {
                     "count": len(zones),
-                    "items": [
-                        {
-                            "id": zone.id,
-                            "type": str(zone.type) if hasattr(zone, 'type') else None,
-                            "metadata": zone.metadata.__dict__ if hasattr(zone, 'metadata') and zone.metadata is not None else None,
-                            "children": [str(c) for c in zone.children] if hasattr(zone, 'children') and zone.children is not None else []
-                        }
-                        for zone in zones
-                    ]
+                    "items": [extras.serialize_group(z) for z in zones]
                 },
                 "rooms": {
                     "count": len(rooms),
-                    "items": [
-                        {
-                            "id": room.id,
-                            "type": str(room.type) if hasattr(room, 'type') else None,
-                            "metadata": room.metadata.__dict__ if hasattr(room, 'metadata') and room.metadata is not None else None,
-                            "children": [str(c) for c in room.children] if hasattr(room, 'children') and room.children is not None else []
-                        }
-                        for room in rooms
-                    ]
+                    "items": [extras.serialize_group(r) for r in rooms]
                 }
             }
             print(f"      ✅ Found {len(zones)} zones, {len(rooms)} rooms")
@@ -367,6 +352,34 @@ async def inventory_bridge(bridge_ip: str, username: str, client_key: Optional[s
         except Exception as e:
             print(f"      ⚠️  Error retrieving sensors: {e}", file=sys.stderr)
             inventory["resources"]["sensors"] = {"error": str(e)}
+
+        # Retrieve buttons
+        try:
+            buttons = extras.serialize_buttons(bridge.sensors.button.items)
+            inventory["resources"]["buttons"] = {"count": len(buttons), "items": buttons}
+            print(f"      [OK] Found {len(buttons)} buttons")
+        except Exception as e:
+            print(f"      [WARN] Error retrieving buttons: {e}", file=sys.stderr)
+            inventory["resources"]["buttons"] = {"error": str(e)}
+
+        # Retrieve behavior instances
+        try:
+            behaviors = extras.serialize_behaviors(
+                bridge.config.behavior_instance.items,
+                bridge.config.behavior_script.items)
+            inventory["resources"]["behaviors"] = {"count": len(behaviors), "items": behaviors}
+            print(f"      [OK] Found {len(behaviors)} behaviors")
+        except Exception as e:
+            print(f"      [WARN] Error retrieving behaviors: {e}", file=sys.stderr)
+            inventory["resources"]["behaviors"] = {"error": str(e)}
+
+        # Retrieve v1 rules and sensors (owner field stripped)
+        try:
+            inventory["resources"]["v1"] = await extras.fetch_v1(bridge_ip, username)
+            print(f"      [OK] Retrieved v1 rules: {len(inventory['resources']['v1']['rules'])}")
+        except Exception as e:
+            print(f"      [WARN] Error retrieving v1 data: {e}", file=sys.stderr)
+            inventory["resources"]["v1"] = {"error": str(e)}
 
         # Get bridge config/info
         try:
