@@ -641,6 +641,12 @@ class SceneValidator(hass.Hass):
             return
 
         select_unique_id = self.select_entity_to_unique_id.get(entity)
+        if select_unique_id:
+            # Any active-scene change is a scene step for room-off evidence, even if
+            # the option cannot be resolved to a scene entity below
+            now = self.get_now()
+            for rid in self._group_light_rids(select_unique_id.removesuffix(SCENE_SELECT_SUFFIX)):
+                self.light_activation_at[rid] = now
         scene_entity = None
         if select_unique_id:
             scene_entity = resolve_scene_entity_from_select(
@@ -652,6 +658,16 @@ class SceneValidator(hass.Hass):
             return
 
         self._handle_scene_activation(scene_entity, source=f"{entity} (bridge-reported)")
+
+    def _group_light_rids(self, group_id: str) -> List[str]:
+        """Hue light rids of the room/zone with this v2 id ([] if unknown)."""
+        for inventory in self.inventories:
+            for key in ('rooms', 'zones'):
+                for group in _items(inventory, key):
+                    if group.get('id') == group_id:
+                        devices_by_id = {d.get('id'): d for d in _items(inventory, 'devices')}
+                        return _group_lights(group, devices_by_id)
+        return []
 
     def _scene_light_rids(self, scene_entity: str) -> List[str]:
         """Return the Hue light rids of a scene (silent lookup, [] if unknown)."""

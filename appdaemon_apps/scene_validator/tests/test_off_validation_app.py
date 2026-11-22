@@ -476,3 +476,17 @@ def test_scene_step_is_deferred_at_most_once(ambiguous_app):
 
     starts = [m for _lvl, m in app.logs if m == f"Starting validation: {SCENE}"]
     assert len(starts) == 1
+
+
+def test_unresolved_select_option_still_counts_as_scene_step(ambiguous_app):
+    app = ambiguous_app
+    press(app)
+    app.on_select_state_changed(SELECT, "state", "unknown", "NewSceneNotInInventory", {})
+    set_light(app, LAMP_A, "off", 0.3)   # scene step turns A off
+    set_light(app, LAMP_B, "on", -3600)  # B already at scene target -> no update
+
+    app.run_scheduled()
+
+    assert turn_offs(app) == []
+    assert warns(app, "Could not resolve 'NewSceneNotInInventory'")
+    assert any("[SKIP]" in m and "scene step" in m for _lvl, m in app.logs)
