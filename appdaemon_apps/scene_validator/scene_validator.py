@@ -136,6 +136,7 @@ class SceneValidator(hass.Hass):
         self.select_entity_to_unique_id = {}  # select.*_szene -> "<group_id>_scene_select"
         self._activation_seq = 0
         self.light_last_activation = {}  # Hue light rid -> (activation seq, scene_entity)
+        self.interrupted_scenes = set()  # scenes whose lights another scene took over
         self.circuit_breaker_state = 'CLOSED'
         self.circuit_breaker_failures = 0
         self.circuit_breaker_successes = 0
@@ -476,6 +477,10 @@ class SceneValidator(hass.Hass):
         """Mark the scene's lights as owned by this activation; return its sequence number."""
         self._activation_seq += 1
         for rid in self._scene_light_rids(scene_entity):
+            _seq, previous_owner = self.light_last_activation.get(rid, (0, None))
+            if previous_owner and previous_owner != scene_entity:
+                # A later re-activation of previous_owner is a real user choice
+                self.interrupted_scenes.add(previous_owner)
             self.light_last_activation[rid] = (self._activation_seq, scene_entity)
         return self._activation_seq
 
@@ -512,6 +517,11 @@ class SceneValidator(hass.Hass):
             ent: ts for ent, ts in self.recent_validations.items()
             if ts > cutoff
         }
+
+        if entity in self.interrupted_scenes:
+            # Another scene took over since the last validation: not a duplicate report
+            self.interrupted_scenes.discard(entity)
+            self.recent_validations.pop(entity, None)
 
         if entity in self.recent_validations:
             last_validation = self.recent_validations[entity]

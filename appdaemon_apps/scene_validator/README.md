@@ -103,7 +103,7 @@ Set `debug_logging: false` to only show failures (cleaner logs for production).
 
 ## Version History
 
-- **2.3.1**: Abort validation/escalation when a newer scene was activated on any of the same lights (also unvalidated scenes and overlapping zones)
+- **2.3.1**: Abort validation/escalation when a newer scene was activated on any of the same lights (also unvalidated scenes and overlapping zones); re-activating a scene after another scene took over its lights is no longer swallowed by the debounce
 - **2.3.0**: Detect activations from outside HA via Hue select entities; listeners no longer depend on HA states at startup; optional `entity_registry_path`
 - **2.2.0-FORMATTED**: Consistent logging format + debug flag
 - **2.1.1-CLEAN**: Production ready - debug logs removed

@@ -86,6 +86,20 @@ def test_newer_scene_during_escalation_stops_level3(app):
     assert [s for s, _ in app.service_calls if s.startswith("light/")] == []
 
 
+def test_reactivation_after_superseded_validation_is_not_debounced(app):
+    # Observed on ha-test: Standard, Abends, (Standard validation skipped),
+    # Standard again - the second Standard was swallowed by the debounce.
+    app.on_select_state_changed(SELECT, "state", "unknown", "Arbeiten Standard", {})
+    app.on_select_state_changed(SELECT, "state", "Arbeiten Standard", "Arbeiten Abends", {})
+    app.run_scheduled()
+    assert retriggered_scenes(app) == []
+
+    app.on_select_state_changed(SELECT, "state", "unknown", "Arbeiten Standard", {})
+    app.run_scheduled()
+
+    assert STANDARD in retriggered_scenes(app)
+
+
 def test_same_scene_reported_twice_still_validates(app):
     # HA-initiated: scene.* then select report the same scene - must not cancel.
     app.on_scene_state_changed(STANDARD, "state", "unknown", "2026-11-22T17:00:00", {})
