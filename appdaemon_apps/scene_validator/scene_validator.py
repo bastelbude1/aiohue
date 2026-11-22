@@ -144,6 +144,28 @@ def _group_lights(group: Dict[str, Any], devices_by_id: Dict[str, Dict[str, Any]
     return [rid for rid in rids if rid]
 
 
+def _only_harmless_conditions(rule: Dict[str, Any], sensor_v1: str, code: int,
+                              group_v1: str) -> bool:
+    """True if every condition of an off-rule only says "this button was pressed".
+
+    Allowed: the rule's own buttonevent eq <code>, its sensor's lastupdated dx/ddx,
+    and "<own group>/state/any_on eq true". Anything else (time, CLIP status,
+    presence, ...) can make the bridge skip the rule on a press.
+    """
+    for cond in rule.get('conditions') or []:
+        address = str(cond.get('address', ''))
+        operator = cond.get('operator')
+        value = str(cond.get('value', '')).lower()
+        if address == f"{sensor_v1}/state/buttonevent" and operator == 'eq' and value == str(code):
+            continue
+        if address == f"{sensor_v1}/state/lastupdated" and operator in ('dx', 'ddx'):
+            continue
+        if address == f"{group_v1}/state/any_on" and operator == 'eq' and value == 'true':
+            continue
+        return False
+    return True
+
+
 def build_off_jobs(
     inventories: List[Dict[str, Any]],
     hue_id_to_entity_id: Dict[str, str],
@@ -155,7 +177,9 @@ def build_off_jobs(
     a job for the room/zone with id_v1 /groups/<n>. v1 ids are per bridge, so
     each inventory is resolved on its own. A rule with any broken link in the
     chain is skipped. A job is ambiguous when another enabled rule on the same
-    sensor and code does something other than switching a group off.
+    sensor and code does something other than switching a group off, or when
+    the off-rule itself has a condition beyond the button press (only an
+    unconditional off-rule makes a press a certain room-off).
     """
     jobs: Dict[str, List[Dict[str, Any]]] = {}
     for inventory in inventories:
@@ -208,7 +232,9 @@ def build_off_jobs(
                         "room_name": (group.get('metadata') or {}).get('name'),
                         "lights": [e for _, e in pairs],
                         "light_rids": [rid for rid, _ in pairs],
-                        "ambiguous": (sensor_v1, code) in non_off_codes,
+                        "ambiguous": ((sensor_v1, code) in non_off_codes
+                                      or not _only_harmless_conditions(
+                                          r, sensor_v1, code, match.group(1))),
                     }
                     existing = jobs.setdefault(entity, [])
                     if not any(j['event_type'] == event_type and j['room_id'] == job['room_id']

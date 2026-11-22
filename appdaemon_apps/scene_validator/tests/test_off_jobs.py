@@ -150,6 +150,7 @@ def test_inventory_without_v1_is_skipped():
 
 
 def test_real_rule_with_extra_conditions_still_matches():
+    """Hue-app style rule with a CLIP status condition: matched, but conditional."""
     r = rule(1002, {"on": False})
     r["conditions"] = [
         {"address": "/sensors/16/state/buttonevent", "operator": "eq", "value": "1002"},
@@ -159,3 +160,47 @@ def test_real_rule_with_extra_conditions_still_matches():
     ]
     jobs = build_off_jobs([make_inventory({"1": r})], registry())
     assert jobs[BTN_ENTITY][0]["lights"] == ["light.lamp_a", "light.lamp_b"]
+    assert jobs[BTN_ENTITY][0]["ambiguous"] is True
+
+
+def test_unconditional_off_rule_with_only_harmless_conditions_is_unambiguous():
+    r = rule(1002, {"on": False})
+    r["conditions"].append(
+        {"address": "/groups/1/state/any_on", "operator": "eq", "value": "true"})
+    jobs = build_off_jobs([make_inventory({"1": r})], registry())
+    assert jobs[BTN_ENTITY][0]["ambiguous"] is False
+
+
+def test_conditional_sole_off_rule_is_ambiguous():
+    r = rule(1002, {"on": False})
+    r["conditions"].append(
+        {"address": "/config/localtime", "operator": "in", "value": "T22:00:00/T06:00:00"})
+    jobs = build_off_jobs([make_inventory({"1": r})], registry())
+    assert jobs[BTN_ENTITY][0]["ambiguous"] is True
+
+
+def test_any_on_of_another_group_makes_ambiguous():
+    r = rule(1002, {"on": False})
+    r["conditions"].append(
+        {"address": "/groups/7/state/any_on", "operator": "eq", "value": "true"})
+    jobs = build_off_jobs([make_inventory({"1": r})], registry())
+    assert jobs[BTN_ENTITY][0]["ambiguous"] is True
+
+
+def test_two_off_rules_same_button_different_groups():
+    r1 = rule(1002, {"on": False})
+    r1["conditions"].append(
+        {"address": "/groups/1/state/any_on", "operator": "eq", "value": "true"})
+    r2 = rule(1002, {"on": False}, address="/groups/5/action")
+    r2["conditions"].append(
+        {"address": "/groups/5/state/any_on", "operator": "eq", "value": "true"})
+    inv = make_inventory({"1": r1, "2": r2})
+    inv["resources"]["groups"]["zones"]["items"] = [
+        group("a-zone", "/groups/5", "zone", "Zone_X", [("a-light-b", "light")])]
+    jobs = build_off_jobs([inv], registry())[BTN_ENTITY]
+    by_room = {j["room_id"]: j for j in jobs}
+    assert set(by_room) == {"a-room", "a-zone"}
+    assert by_room["a-room"]["lights"] == ["light.lamp_a", "light.lamp_b"]
+    assert by_room["a-zone"]["lights"] == ["light.lamp_b"]
+    assert by_room["a-room"]["ambiguous"] is False
+    assert by_room["a-zone"]["ambiguous"] is False

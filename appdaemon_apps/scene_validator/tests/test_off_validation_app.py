@@ -400,3 +400,19 @@ def test_ambiguous_press_does_not_claim_lights_before_evidence(ambiguous_app):
     run_next(app, "perform_scene_validation")
 
     assert scene_turn_ons(app) == [SCENE]
+
+
+# --- conditional off-rules -----------------------------------------------------
+
+def test_conditional_sole_off_rule_without_evidence_sends_nothing(tmp_path):
+    r = off_rule()
+    r["conditions"].append(
+        {"address": "/config/localtime", "operator": "in", "value": "T22:00:00/T06:00:00"})
+    app = build_app(tmp_path, rules={"1": r})
+    press(app)  # condition false on the bridge: nothing happens
+    set_light(app, LAMP_A, "on", -3600)
+    set_light(app, LAMP_B, "on", -3600)
+
+    app.run_scheduled()
+
+    assert turn_offs(app) == []
