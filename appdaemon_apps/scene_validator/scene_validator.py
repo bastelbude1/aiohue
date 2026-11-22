@@ -343,6 +343,7 @@ class SceneValidator(hass.Hass):
         self.off_jobs = {}  # event entity -> [room-off jobs] (enabled rooms only)
         self.light_activation_at = {}  # Hue light rid -> last scene activation time
         self.latest_press = {}  # room_id -> t_press of the newest press (one pending check per room)
+        self.off_check_evaluated = {}  # room_id -> t_press whose off-check has run
 
         # Debug logging - when False, only log failures and errors (not OK/success messages)
         self.debug_logging = self.args.get('debug_logging', False)
@@ -707,6 +708,44 @@ class SceneValidator(hass.Hass):
             return True
         return False
 
+    def _pending_off_wait(self, scene_entity: str) -> Optional[Tuple[str, float]]:
+        """(room, seconds to wait) if a room-off check on the scene's lights is still pending."""
+        rids = set(self._scene_light_rids(scene_entity))
+        pending = None
+        for jobs in self.off_jobs.values():
+            for job in jobs:
+                t_press = self.latest_press.get(job['room_id'])
+                if (t_press is None or self.off_check_evaluated.get(job['room_id']) == t_press
+                        or not rids & set(job['light_rids'])):
+                    continue
+                wait = max((t_press + timedelta(seconds=self.off_check_delay)
+                            - self.get_now()).total_seconds(), 0.0) + 1
+                if pending is None or wait > pending[1]:
+                    pending = (job['room_name'] or job['room_id'], wait)
+        return pending
+
+    def _defer_for_pending_off(self, callback, kwargs, step: str) -> bool:
+        """Re-schedule a scene step (once) until a pending room-off check has decided.
+
+        A confirmed room-off then claims the lights and the deferred step aborts
+        as superseded; a skipped off-check lets it proceed normally.
+        """
+        if kwargs.get('off_deferred'):
+            return False
+        scene_entity = kwargs.get('scene_entity')
+        pending = self._pending_off_wait(scene_entity)
+        if pending is None:
+            return False
+        room, wait = pending
+        self.log(f"[{scene_entity}] [SKIP] {step} deferred - pending room-off check for {room}")
+        self.run_in(callback, wait,
+                    scene_entity=scene_entity,
+                    scene_data=kwargs.get('scene_data'),
+                    delay_multiplier=kwargs.get('delay_multiplier', 1),
+                    activation_seq=kwargs.get('activation_seq'),
+                    off_deferred=True)
+        return True
+
     def _handle_scene_activation(self, entity: str, source: str):
         """Debounce, filter and schedule validation for an activated scene entity."""
         # Record before debounce/filtering: unvalidated scenes must still supersede
@@ -887,6 +926,9 @@ class SceneValidator(hass.Hass):
 
             if self._abort_if_superseded(scene_entity, activation_seq, "Validation"):
                 return
+            # Covers Level 1 and the Level 2 re-trigger (same callback, no wait between)
+            if self._defer_for_pending_off(self.perform_scene_validation, kwargs, "Validation"):
+                return
 
             self.log(f"Starting validation: {scene_entity}")
 
@@ -978,6 +1020,9 @@ class SceneValidator(hass.Hass):
 
             if self._abort_if_superseded(scene_entity, activation_seq, "Level 2 validation"):
                 return
+            if self._defer_for_pending_off(self.perform_level2_validation, kwargs,
+                                           "Level 2 validation"):
+                return
 
             # Check if validation is possible (inventory format)
             actions = scene_data.get('actions', [])
@@ -1066,6 +1111,8 @@ class SceneValidator(hass.Hass):
                 return
 
             if self._abort_if_superseded(scene_entity, activation_seq, "Level 3 control"):
+                return
+            if self._defer_for_pending_off(self.perform_level3_control, kwargs, "Level 3 control"):
                 return
 
             # Control lights individually
@@ -1235,6 +1282,7 @@ class SceneValidator(hass.Hass):
             if self.latest_press.get(job['room_id']) != t_press:
                 self.log(f"[{room}] Room off check replaced by a newer press", level="DEBUG")
                 return
+            self.off_check_evaluated[job['room_id']] = t_press
 
             window_start = t_press - timedelta(seconds=1)
             lights_now = self._read_room_lights(job['lights'], room)

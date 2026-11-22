@@ -396,10 +396,14 @@ def test_ambiguous_press_does_not_claim_lights_before_evidence(ambiguous_app):
     set_light(app, LAMP_A, "off", 0.3)
     set_light(app, LAMP_B, "off", 0.4)
 
-    # Scene validation runs before the off-check confirmed anything: not superseded
+    # Scene validation runs before the off-check confirmed anything: no claim yet,
+    # the scene step is only deferred until the off-check has decided
     run_next(app, "perform_scene_validation")
 
-    assert scene_turn_ons(app) == [SCENE]
+    assert all(owner == SCENE for _seq, owner in app.light_last_activation.values())
+    assert scene_turn_ons(app) == []
+    assert any("[SKIP] Validation deferred - pending room-off check for Room_Office" in m
+               for _lvl, m in app.logs)
 
 
 # --- conditional off-rules -----------------------------------------------------
@@ -416,3 +420,59 @@ def test_conditional_sole_off_rule_without_evidence_sends_nothing(tmp_path):
     app.run_scheduled()
 
     assert turn_offs(app) == []
+
+
+# --- pending room-off defers scene steps ----------------------------------------
+
+def test_scene_then_quick_room_off_does_not_retrigger_scene(ambiguous_app):
+    app = ambiguous_app
+    app.on_select_state_changed(SELECT, "state", "unknown", "Standard", {})  # t0
+    app.now += timedelta(seconds=2)
+    press(app)                                  # t0+2: owner switches the room off
+    set_light(app, LAMP_A, "off", 0.3)
+    set_light(app, LAMP_B, "off", 0.4)
+
+    # real time order: scene validation (t0+5) before the off-check (t0+7)
+    run_next(app, "perform_scene_validation")
+    assert scene_turn_ons(app) == []
+    deferred = [d for name, d, _kw in app.scheduled if name == "perform_scene_validation"][-1]
+    assert deferred > 0
+
+    app.run_scheduled()
+
+    assert scene_turn_ons(app) == []
+    assert any("[SKIP]" in m and "superseded" in m and "off:Room_Office" in m
+               for _lvl, m in app.logs)
+
+
+def test_scene_validation_proceeds_after_off_check_skipped(ambiguous_app):
+    app = ambiguous_app
+    press(app)
+    app.now += timedelta(seconds=0.5)
+    app.on_select_state_changed(SELECT, "state", "unknown", "Standard", {})  # scene step
+    set_light(app, LAMP_A, "off", 0.3)
+    set_light(app, LAMP_B, "on", -3600)
+
+    run_next(app, "perform_scene_validation")   # deferred: off-check still pending
+    app.run_scheduled()
+
+    starts = [m for _lvl, m in app.logs if m == f"Starting validation: {SCENE}"]
+    assert len(starts) == 1
+    assert any("[SKIP]" in m and "scene step" in m for _lvl, m in app.logs)
+    assert scene_turn_ons(app) == [SCENE]       # normal Level 2 re-trigger
+    assert turn_offs(app) == []
+
+
+def test_scene_step_is_deferred_at_most_once(ambiguous_app):
+    app = ambiguous_app
+    app.on_select_state_changed(SELECT, "state", "unknown", "Standard", {})
+    app.now += timedelta(seconds=2)
+    press(app)
+    set_light(app, LAMP_A, "off", 0.3)
+    set_light(app, LAMP_B, "off", 0.4)
+
+    run_next(app, "perform_scene_validation")
+    run_next(app, "perform_scene_validation")   # off-check still not run (e.g. delayed)
+
+    starts = [m for _lvl, m in app.logs if m == f"Starting validation: {SCENE}"]
+    assert len(starts) == 1
