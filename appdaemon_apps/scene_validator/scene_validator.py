@@ -21,10 +21,10 @@ Requirements:
 - Hue bridge inventories in /homeassistant/hue_inventories/
 
 Author: Scene Validator
-Version: 2.3.0 (Detect external activations via Hue active-scene selects)
+Version: 2.3.1 (Do not validate scenes superseded by a newer activation)
 """
 
-__VERSION__ = "2.3.0"
+__VERSION__ = "2.3.1"
 
 import appdaemon.plugins.hass.hassapi as hass
 import json
@@ -134,6 +134,8 @@ class SceneValidator(hass.Hass):
         self.inventories = []
         self.hue_id_to_entity_id = {}  # Hue unique_id -> HA entity_id mapping cache
         self.select_entity_to_unique_id = {}  # select.*_szene -> "<group_id>_scene_select"
+        self._activation_seq = 0
+        self.light_last_activation = {}  # Hue light rid -> (activation seq, scene_entity)
         self.circuit_breaker_state = 'CLOSED'
         self.circuit_breaker_failures = 0
         self.circuit_breaker_successes = 0
@@ -453,8 +455,54 @@ class SceneValidator(hass.Hass):
 
         self._handle_scene_activation(scene_entity, source=f"{entity} (bridge-reported)")
 
+    def _scene_light_rids(self, scene_entity: str) -> List[str]:
+        """Return the Hue light rids of a scene (silent lookup, [] if unknown)."""
+        hue_scene_id = next(
+            (uid for uid, ent in self.hue_id_to_entity_id.items() if ent == scene_entity), None
+        )
+        if not hue_scene_id:
+            return []
+        for inventory in self.inventories:
+            for scene in inventory.get('resources', {}).get('scenes', {}).get('items', []):
+                if scene.get('id') == hue_scene_id:
+                    actions = scene.get('actions', [])
+                    if self._is_legacy_action_format(actions):
+                        return []
+                    return [a.get('target', {}).get('rid') for a in actions
+                            if isinstance(a, dict) and a.get('target', {}).get('rid')]
+        return []
+
+    def _record_activation(self, scene_entity: str) -> int:
+        """Mark the scene's lights as owned by this activation; return its sequence number."""
+        self._activation_seq += 1
+        for rid in self._scene_light_rids(scene_entity):
+            self.light_last_activation[rid] = (self._activation_seq, scene_entity)
+        return self._activation_seq
+
+    def _superseded_by(self, scene_entity: str, activation_seq: Optional[int]) -> Optional[str]:
+        """Return the newer scene that took over any of this scene's lights, if any."""
+        if activation_seq is None:
+            return None
+        for rid in self._scene_light_rids(scene_entity):
+            seq, owner = self.light_last_activation.get(rid, (0, None))
+            if seq > activation_seq and owner != scene_entity:
+                return owner
+        return None
+
+    def _abort_if_superseded(self, scene_entity: str, activation_seq: Optional[int], step: str) -> bool:
+        """Log and return True if a newer scene replaced this one before `step`."""
+        newer = self._superseded_by(scene_entity, activation_seq)
+        if newer:
+            self.log(f"[{scene_entity}] [SKIP] {step} aborted - superseded by newer "
+                     f"activation of {newer}")
+            return True
+        return False
+
     def _handle_scene_activation(self, entity: str, source: str):
         """Debounce, filter and schedule validation for an activated scene entity."""
+        # Record before debounce/filtering: unvalidated scenes must still supersede
+        activation_seq = self._record_activation(entity)
+
         # Debouncing: avoid duplicate validations within window
         now = time.time()
 
@@ -486,7 +534,7 @@ class SceneValidator(hass.Hass):
 
         # Schedule validation after transition delay
         self.run_in(self.perform_scene_validation, self.transition_delay,
-                    scene_entity=entity)
+                    scene_entity=entity, activation_seq=activation_seq)
 
     def should_validate_scene(self, entity_id: str, scene_uid: str) -> bool:
         """
@@ -611,9 +659,13 @@ class SceneValidator(hass.Hass):
         """
         try:
             scene_entity = kwargs.get('scene_entity')
+            activation_seq = kwargs.get('activation_seq')
 
             if not scene_entity:
                 self.error("perform_scene_validation called without required parameters")
+                return
+
+            if self._abort_if_superseded(scene_entity, activation_seq, "Validation"):
                 return
 
             self.log(f"Starting validation: {scene_entity}")
@@ -650,6 +702,8 @@ class SceneValidator(hass.Hass):
             self.log(f"[{scene_entity}] [FAIL] Validation failed (failures: {set(self.last_validation_failures)})", level="WARNING")
 
             # LEVEL 2: Re-trigger scene (async scheduling to avoid blocking)
+            if self._abort_if_superseded(scene_entity, activation_seq, "Level 2 re-trigger"):
+                return
             self.log(f"[{scene_entity}] LEVEL 2: Re-triggering scene")
             self.call_service("scene/turn_on", entity_id=scene_entity)
 
@@ -662,7 +716,8 @@ class SceneValidator(hass.Hass):
                     level2_delay,
                     scene_entity=scene_entity,
                     scene_data=scene_data,
-                    delay_multiplier=delay_multiplier  # Pass to Level 3
+                    delay_multiplier=delay_multiplier,  # Pass to Level 3
+                    activation_seq=activation_seq,
                 )
                 self.log(f"[{scene_entity}] [SCHEDULER] Level 2 validation scheduled in {level2_delay}s", level="INFO")
             except Exception as e:  # noqa: BLE001 - Broad catch to prevent scheduler failures from crashing app
@@ -693,11 +748,15 @@ class SceneValidator(hass.Hass):
             scene_entity = kwargs.get('scene_entity')
             scene_data = kwargs.get('scene_data')
             level1_delay_multiplier = kwargs.get('delay_multiplier', 1)
+            activation_seq = kwargs.get('activation_seq')
 
             self.log(f"[{scene_entity}] [LEVEL 2] Validating (delay_multiplier={level1_delay_multiplier})", level="INFO")
 
             if not scene_entity or not scene_data:
                 self.error("perform_level2_validation called without required parameters")
+                return
+
+            if self._abort_if_superseded(scene_entity, activation_seq, "Level 2 validation"):
                 return
 
             # Check if validation is possible (inventory format)
@@ -747,7 +806,8 @@ class SceneValidator(hass.Hass):
                     self.perform_level3_control,
                     level3_delay,
                     scene_entity=scene_entity,
-                    scene_data=scene_data
+                    scene_data=scene_data,
+                    activation_seq=activation_seq,
                 )
                 self.log(f"[{scene_entity}] [SCHEDULER] Level 3 control scheduled in {level3_delay}s", level="INFO")
             except Exception as e:  # noqa: BLE001 - Broad catch to prevent scheduler failures from crashing app
@@ -777,11 +837,15 @@ class SceneValidator(hass.Hass):
         try:
             scene_entity = kwargs.get('scene_entity')
             scene_data = kwargs.get('scene_data')
+            activation_seq = kwargs.get('activation_seq')
 
             self.log(f"[{scene_entity}] [LEVEL 3] Controlling lights individually", level="INFO")
 
             if not scene_entity or not scene_data:
                 self.error("perform_level3_control called without required parameters")
+                return
+
+            if self._abort_if_superseded(scene_entity, activation_seq, "Level 3 control"):
                 return
 
             # Control lights individually
@@ -796,6 +860,8 @@ class SceneValidator(hass.Hass):
                     f"[{scene_entity}] [LEVEL 3] Final validation after {self.level3_settle_delay}s settle delay",
                     level="INFO",
                 )
+                if self._abort_if_superseded(scene_entity, activation_seq, "Level 3 final validation"):
+                    return
                 self.last_validation_failures = []
                 if self.validate_scene_state(scene_entity, scene_data):
                     self.log(f"[{scene_entity}] [OK] Level 3 successful - final validation PASSED")

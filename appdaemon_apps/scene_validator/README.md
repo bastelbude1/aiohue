@@ -1,6 +1,6 @@
 # Scene Validator for Philips Hue
 
-**Version:** 2.3.0
+**Version:** 2.3.1
 
 AppDaemon automation for validating Philips Hue scene activations in Home Assistant with intelligent 3-level escalation.
 
@@ -103,6 +103,7 @@ Set `debug_logging: false` to only show failures (cleaner logs for production).
 
 ## Version History
 
+- **2.3.1**: Abort validation/escalation when a newer scene was activated on any of the same lights (also unvalidated scenes and overlapping zones)
 - **2.3.0**: Detect activations from outside HA via Hue select entities; listeners no longer depend on HA states at startup; optional `entity_registry_path`
 - **2.2.0-FORMATTED**: Consistent logging format + debug flag
 - **2.1.1-CLEAN**: Production ready - debug logs removed

@@ -15,6 +15,7 @@ class FakeHass:
         self.scheduled = []
         self.listeners = []
         self.logs = []
+        self.service_calls = []
 
     def log(self, msg, level="INFO", **_kwargs):
         self.logs.append((level, msg))
@@ -24,6 +25,16 @@ class FakeHass:
 
     def run_in(self, callback, delay, **kwargs):
         self.scheduled.append((callback.__name__, delay, kwargs))
+        self.callbacks = getattr(self, "callbacks", []) + [(callback, kwargs)]
+
+    def run_scheduled(self):
+        """Run all pending scheduled callbacks (including ones they schedule)."""
+        while getattr(self, "callbacks", []):
+            callback, kwargs = self.callbacks.pop(0)
+            callback(kwargs)
+
+    def call_service(self, service, **kwargs):
+        self.service_calls.append((service, kwargs))
 
     def listen_state(self, callback, entity_id, **_kwargs):
         self.listeners.append((callback.__name__, entity_id))
