@@ -1,6 +1,22 @@
 """Build the table button event entity -> room-off jobs from v1 rules."""
 
+import sys
+from pathlib import Path
+from types import SimpleNamespace as NS
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+from hue_inventory_extras import serialize_group  # noqa: E402
+
 from scene_validator import build_off_jobs
+
+
+def group(gid, id_v1, gtype, name, children):
+    return serialize_group(NS(
+        id=gid, id_v1=id_v1, type=NS(value=gtype),
+        metadata=NS(name=name, archetype=NS(value="office")),
+        children=[NS(rid=r, rtype=NS(value=rt)) for r, rt in children],
+        services=[],
+    ))
 
 BTN_ENTITY = "event.room_office_switch_button_1"
 
@@ -18,13 +34,11 @@ def make_inventory(rules, room_name="Room_Office", group_v1="/groups/1",
             {"id": switch_dev, "id_v1": sensor_v1,
              "services_structured": [{"rid": button, "rtype": "button"}]},
         ]},
-        "rooms": {"items": [{
-            "id": f"{prefix}-room", "id_v1": group_v1, "type": "room",
-            "metadata": {"name": room_name},
-            "children": [{"rid": lamp_dev_a, "rtype": "device"},
-                         {"rid": lamp_dev_b, "rtype": "device"}],
-        }]},
-        "zones": {"items": []},
+        "groups": {"total_count": 1,
+                   "rooms": {"count": 1, "items": [group(
+                       f"{prefix}-room", group_v1, "room", room_name,
+                       [(lamp_dev_a, "device"), (lamp_dev_b, "device")])]},
+                   "zones": {"count": 0, "items": []}},
         "buttons": {"items": [
             {"id": button, "owner_rid": switch_dev, "control_id": 1},
         ]},
@@ -117,11 +131,8 @@ def test_v1_ids_resolve_per_bridge_only():
 
 def test_zone_with_direct_light_children():
     inv = make_inventory({"1": rule(1002, {"on": False}, address="/groups/5/action")})
-    inv["resources"]["zones"]["items"] = [{
-        "id": "a-zone", "id_v1": "/groups/5", "type": "zone",
-        "metadata": {"name": "Zone_X"},
-        "children": [{"rid": "a-light-b", "rtype": "light"}],
-    }]
+    inv["resources"]["groups"]["zones"]["items"] = [
+        group("a-zone", "/groups/5", "zone", "Zone_X", [("a-light-b", "light")])]
     job = build_off_jobs([inv], registry())[BTN_ENTITY][0]
     assert job["room_id"] == "a-zone"
     assert job["lights"] == ["light.lamp_b"]
@@ -136,3 +147,15 @@ def test_inventory_without_v1_is_skipped():
     inv = make_inventory({})
     inv["resources"]["v1"] = {"error": "boom"}
     assert build_off_jobs([inv], registry()) == {}
+
+
+def test_real_rule_with_extra_conditions_still_matches():
+    r = rule(1002, {"on": False})
+    r["conditions"] = [
+        {"address": "/sensors/16/state/buttonevent", "operator": "eq", "value": "1002"},
+        {"address": "/sensors/16/state/lastupdated", "operator": "dx"},
+        {"address": "/sensors/59/state/status", "operator": "eq", "value": "1"},
+        {"address": "/groups/1/state/any_on", "operator": "eq", "value": "true"},
+    ]
+    jobs = build_off_jobs([make_inventory({"1": r})], registry())
+    assert jobs[BTN_ENTITY][0]["lights"] == ["light.lamp_a", "light.lamp_b"]

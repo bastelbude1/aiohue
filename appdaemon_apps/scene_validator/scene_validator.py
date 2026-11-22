@@ -104,7 +104,12 @@ _V1_GROUP_ACTION_RE = re.compile(r"^(/groups/\d+)/action$")
 
 
 def _items(inventory: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
-    section = inventory.get('resources', {}).get(key, {})
+    """Items of resources.<key>, or of resources.groups.<key> for rooms/zones."""
+    resources = inventory.get('resources', {})
+    if key in ('rooms', 'zones'):
+        resources = resources.get('groups', {})
+        resources = resources if isinstance(resources, dict) else {}
+    section = resources.get(key, {})
     items = section.get('items') if isinstance(section, dict) else None
     return items if isinstance(items, list) else []
 
