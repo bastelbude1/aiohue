@@ -97,6 +97,117 @@ def resolve_scene_entity_from_select(
     return hue_id_to_entity_id.get(scene_id) if scene_id else None
 
 
+V1_EVENT_TYPES = {0: "initial_press", 1: "repeat", 2: "short_release", 3: "long_release"}
+
+_V1_BUTTON_COND_RE = re.compile(r"^(/sensors/\d+)/state/buttonevent$")
+_V1_GROUP_ACTION_RE = re.compile(r"^(/groups/\d+)/action$")
+
+
+def _items(inventory: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
+    section = inventory.get('resources', {}).get(key, {})
+    items = section.get('items') if isinstance(section, dict) else None
+    return items if isinstance(items, list) else []
+
+
+def _rule_button_codes(rule: Dict[str, Any]) -> List[tuple]:
+    """(sensor_v1, code) pairs from the rule's buttonevent 'eq' conditions."""
+    pairs = []
+    for cond in rule.get('conditions') or []:
+        match = _V1_BUTTON_COND_RE.match(str(cond.get('address', '')))
+        if match and cond.get('operator') == 'eq':
+            try:
+                pairs.append((match.group(1), int(cond.get('value'))))
+            except (TypeError, ValueError):
+                continue
+    return pairs
+
+
+def _group_lights(group: Dict[str, Any], devices_by_id: Dict[str, Dict[str, Any]]) -> List[str]:
+    """Hue light rids of a room (via child devices) or zone (direct light children)."""
+    rids: List[str] = []
+    for child in group.get('children') or []:
+        if child.get('rtype') == 'light':
+            rids.append(child.get('rid'))
+        elif child.get('rtype') == 'device':
+            device = devices_by_id.get(child.get('rid'), {})
+            rids.extend(s.get('rid') for s in device.get('services_structured') or []
+                        if s.get('rtype') == 'light')
+    return [rid for rid in rids if rid]
+
+
+def build_off_jobs(
+    inventories: List[Dict[str, Any]],
+    hue_id_to_entity_id: Dict[str, str],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Build {HA button event entity_id: [room-off jobs]} from enabled v1 rules.
+
+    A rule "buttonevent eq <code> -> PUT /groups/<n>/action {on: false}" becomes
+    a job for the room/zone with id_v1 /groups/<n>. v1 ids are per bridge, so
+    each inventory is resolved on its own. A rule with any broken link in the
+    chain is skipped. A job is ambiguous when another enabled rule on the same
+    sensor and code does something other than switching a group off.
+    """
+    jobs: Dict[str, List[Dict[str, Any]]] = {}
+    for inventory in inventories:
+        v1 = inventory.get('resources', {}).get('v1')
+        rules = v1.get('rules') if isinstance(v1, dict) else None
+        if not isinstance(rules, dict):
+            continue
+        devices_by_id = {d.get('id'): d for d in _items(inventory, 'devices')}
+        devices_by_v1 = {d.get('id_v1'): d for d in _items(inventory, 'devices') if d.get('id_v1')}
+        groups_by_v1 = {g.get('id_v1'): g for key in ('rooms', 'zones')
+                        for g in _items(inventory, key) if g.get('id_v1')}
+        buttons = _items(inventory, 'buttons')
+
+        def is_off(action: Dict[str, Any]) -> bool:
+            body = action.get('body') or {}
+            return (bool(_V1_GROUP_ACTION_RE.match(str(action.get('address', ''))))
+                    and body.get('on') is False)
+
+        enabled = [r for r in rules.values()
+                   if isinstance(r, dict) and r.get('status') == 'enabled']
+        non_off_codes = {pair for r in enabled
+                         if any(not is_off(a) for a in r.get('actions') or [])
+                         for pair in _rule_button_codes(r)}
+
+        for r in enabled:
+            for action in r.get('actions') or []:
+                match = _V1_GROUP_ACTION_RE.match(str(action.get('address', '')))
+                if not (match and is_off(action)):
+                    continue
+                group = groups_by_v1.get(match.group(1))
+                if group is None:
+                    continue
+                for sensor_v1, code in _rule_button_codes(r):
+                    event_type = V1_EVENT_TYPES.get(code % 1000)
+                    device = devices_by_v1.get(sensor_v1)
+                    if event_type is None or device is None:
+                        continue
+                    button = next((b for b in buttons
+                                   if b.get('owner_rid') == device.get('id')
+                                   and b.get('control_id') == code // 1000), None)
+                    entity = hue_id_to_entity_id.get(button.get('id')) if button else None
+                    if not entity:
+                        continue
+                    pairs = [(rid, hue_id_to_entity_id[rid])
+                             for rid in _group_lights(group, devices_by_id)
+                             if rid in hue_id_to_entity_id]
+                    job = {
+                        "event_type": event_type,
+                        "room_id": group.get('id'),
+                        "room_name": (group.get('metadata') or {}).get('name'),
+                        "lights": [e for _, e in pairs],
+                        "light_rids": [rid for rid, _ in pairs],
+                        "ambiguous": (sensor_v1, code) in non_off_codes,
+                    }
+                    existing = jobs.setdefault(entity, [])
+                    if not any(j['event_type'] == event_type and j['room_id'] == job['room_id']
+                               for j in existing):
+                        existing.append(job)
+    return jobs
+
+
 class SceneValidator(hass.Hass):
     """
     AppDaemon app that validates Hue scene activations with fallback.
