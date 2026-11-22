@@ -29,6 +29,11 @@
 3. A light update that reaches HA up to 1 s **before** the button event still counts as evidence. Pinned in Task 3 (`test_off_update_up_to_1s_before_press_counts`).
 4. An old inventory without `v1` data must not crash startup. Off validation is disabled with `[WARN]`. Pinned in Task 4 (`test_old_inventory_disables_off_validation_with_warning`).
 5. The same v1 ids (`/groups/1`, `/sensors/16`) on two bridges must not cross-match. Pinned in Task 2 (`test_v1_ids_resolve_per_bridge_only`).
+6. After an HA restart or AppDaemon reconnect, HA restores the last button event state. That must not count as a press. Pinned in Task 4 (`test_restored_event_state_after_restart_is_ignored`).
+
+## Known Assumption (not provable on ha-test)
+
+The feature only works if the bridge reports a lamp that missed the command as still `on`. If the bridge reports the commanded state optimistically, HA never sees the lamp burning, and the check can only return `[OK]`. The simulation in Task 6 proves HA's side, not the bridge's. Task 7 Step 4 is where real evidence appears: a production `missed` log line followed by a lamp that really went off. Until such a line is seen, the owner should treat the feature as unproven for real radio failures.
 
 ---
 
@@ -42,7 +47,7 @@
 
 **Interfaces:**
 - Produces (inventory JSON, consumed by Tasks 2 and 4):
-  - `resources.groups.rooms.items[]` and `resources.groups.zones.items[]`. Each item is `{id, id_v1, name, children: [{rid, rtype}], services: [{rid, rtype}]}`.
+  - `resources.groups.rooms.items[]` and `resources.groups.zones.items[]`. Each item is `{id, id_v1, type, metadata: {name, archetype}, children: [{rid, rtype}], services: [{rid, rtype}]}`. Keep `metadata` as a dict, because `scripts/query-hue-inventory.py` filters rooms/zones by `item["metadata"]["name"]` (`filter_by_name`). No consumer reads `children` today, so the structured format is safe.
   - On each `resources.devices.items[]`, additionally `id_v1` and `services_structured: [{rid, rtype}]`.
   - `resources.buttons.items[]`: `{id, owner_rid, control_id}`.
   - `resources.v1.rules`: dict keyed by rule id, values as returned by the bridge **minus `owner`**. `resources.v1.sensors`: `{id: {name, type, uniqueid}}`.
@@ -59,7 +64,8 @@
 
 - [ ] **Step 1: Write failing tests** in `scripts/tests/test_hue_inventory_extras.py`, using `types.SimpleNamespace` fakes:
   - `test_split_groups_uses_enum_value`: groups with `.type.value` `"room"` / `"zone"` / `"bridge_home"` split into 1 room and 1 zone. This is the regression for the always-false `== "zone"`.
-  - `test_serialize_group_structures_children_and_services`: children `[{"rid": "dev-1", "rtype": "device"}]`, services contain `{"rid": "gl-1", "rtype": "grouped_light"}`, `id_v1 == "/groups/1"`, `name == "Room_Office"`.
+  - `test_serialize_group_structures_children_and_services`: children `[{"rid": "dev-1", "rtype": "device"}]`, services contain `{"rid": "gl-1", "rtype": "grouped_light"}`, `id_v1 == "/groups/1"`, `metadata["name"] == "Room_Office"`.
+  - `test_serialized_rooms_work_with_query_name_filter`: load `filter_by_name` from `scripts/query-hue-inventory.py` via `importlib.util.spec_from_file_location` (the file name has dashes). `filter_by_name([serialize_group(room)], "room_*")` returns 1 item.
   - `test_sanitize_v1_rules_drops_owner`: input rule with `owner: "abc123def456"`. Output has no `owner` key; `conditions` and `actions` are unchanged.
   - `test_serialize_buttons_keeps_control_id_and_owner`.
 - [ ] **Step 2: Run, verify FAIL** (`ModuleNotFoundError: hue_inventory_extras`).
@@ -85,7 +91,8 @@
 - Consumes: inventory keys from Task 1, and `hue_id_to_entity_id: Dict[str, str]` (registry unique_id -> entity_id, already built in `load_entity_registry_mapping`).
 - Produces:
   - `V1_EVENT_TYPES = {0: "initial_press", 1: "repeat", 2: "short_release", 3: "long_release"}`
-  - `build_off_jobs(inventories: List[dict], hue_id_to_entity_id: Dict[str, str]) -> Dict[str, List[dict]]`. The key is the HA event entity_id. Each value item is `{"event_type": str, "room_id": str, "room_name": str, "lights": List[str], "ambiguous": bool}`.
+  - `build_off_jobs(inventories: List[dict], hue_id_to_entity_id: Dict[str, str]) -> Dict[str, List[dict]]`. The key is the HA event entity_id. Each value item is `{"event_type": str, "room_id": str, "room_name": str, "lights": List[str], "light_rids": List[str], "ambiguous": bool}`.
+    - `light_rids` are the Hue light resource ids, in the same order as `lights`. Task 4 needs them, because the existing per-light ownership (`light_last_activation`) and the new `light_activation_at` are keyed by Hue rid, not by HA entity_id.
   - Resolution happens **within one inventory** (v1 ids are per bridge). Chain: rule action address `/groups/<n>/action` with body `{"on": false}` -> room/zone `id_v1`. Then condition `/sensors/<s>/state/buttonevent` `eq <code>` -> device `id_v1 == "/sensors/<s>"` -> button with `owner_rid == device.id` and `control_id == code // 1000` -> event entity via `hue_id_to_entity_id[button.id]`. The event type is `V1_EVENT_TYPES[code % 1000]`.
   - Room lights: the `light` services of child devices (rooms). Zones may list `light` children directly. Map via `hue_id_to_entity_id`.
   - `ambiguous = True` if another enabled rule with the same sensor and code has a non-off action.
@@ -139,7 +146,10 @@
 
 **Files:**
 - Modify: `appdaemon_apps/scene_validator/scene_validator.py` (`initialize`, `_handle_scene_activation`, new methods)
-- Modify: `appdaemon_apps/scene_validator/tests/conftest.py`. `FakeHass` gets `get_now()` returning a settable `self.now` (aware datetime). `full_states` values may carry `last_updated` as ISO strings, as AppDaemon returns them.
+- Modify: `appdaemon_apps/scene_validator/tests/conftest.py`.
+  - `FakeHass` gets `get_now()` returning `self.now`. The default is set in `__init__` to an aware datetime (`2026-11-22T18:00:00+00:00`), so the 14 existing tests keep passing once `_record_activation` calls `get_now()`.
+  - `full_states` values carry `last_updated` as ISO strings, as AppDaemon returns them.
+  - AppDaemon 4.5.16 `ADAPI.get_now` exists and is synchronous (verified in the image).
 - Create: `appdaemon_apps/scene_validator/tests/test_off_validation_app.py`
 
 **Interfaces:**
@@ -148,9 +158,14 @@
   - Config: `self.off_validation_enabled: bool`, `self.off_validation_rooms: List[str]` (matched against `room_name` or `room_id`), `self.off_check_delay: float` (default 5). They come from `args["off_validation"]` with keys `enabled`, `rooms`, `off_check_delay`.
   - `self.off_jobs`: the `build_off_jobs` result, filtered to enabled rooms.
   - `self.light_activation_at: Dict[str, datetime]` (Hue light rid -> last scene activation time). It is set in `_record_activation` via `self.get_now()`, next to the existing sequence.
-  - `on_switch_event(self, entity, attribute, old, new, kwargs)`: reads `event_type` via `get_state(entity, attribute="event_type")` and matches the job's `event_type`. `t_press = datetime.fromisoformat(new)`. Schedules `perform_off_check` after `off_check_delay` with `job` and `t_press`. Keeps one pending check per room: a newer press for the same room replaces the pending one.
+  - `on_switch_event(self, entity, attribute, old, new, kwargs)`:
+    - reads `event_type` via `get_state(entity, attribute="event_type")` and matches it against the job's `event_type`,
+    - `t_press = datetime.fromisoformat(new)`,
+    - **ignores stale or restored states:** `old` or `new` in `(None, "unknown", "unavailable")`, or `get_now() - t_press > off_check_delay + 2 s`. HA restores the last event entity state after a restart or reconnect. Without this guard, an unambiguous button would switch off lights that are on for good reason,
+    - schedules `perform_off_check` after `off_check_delay` with `job` and `t_press`.
+    - Keeps one pending check per room without `cancel_timer`: it stores `self.latest_press[room_id] = t_press`, and `perform_off_check` returns early if its `t_press` is not the latest for that room.
   - `perform_off_check(self, kwargs)`:
-    - reads `lights_now` via `get_state(e, attribute="all")`,
+    - reads `lights_now` via `get_state(e, attribute="all")` and parses `last_updated` with `datetime.fromisoformat`. A light with no state, or `unavailable`, is left out of `lights_now` and logged once with `[WARN]`,
     - computes `scene_activated_in_window` from `light_activation_at` of the room lights,
     - calls `classify_off_check`, then logs `[SKIP]` / `[OK]`, or sends `light/turn_off` to the missed lights (Level 2),
     - after a confirmed off on an ambiguous button, records ownership `off:<room_name>` via the existing per-light sequence. That makes pending scene validations on those lights abort with the existing `[SKIP] ... superseded`. Unambiguous buttons record ownership already in `on_switch_event` (at press time),
@@ -159,6 +174,7 @@
   - `perform_off_level3`: re-checks the lights that were missed. If any are still on: individual `light/turn_off`, then a final check after `level3_settle_delay`. Logs `[OK]`, or `[FAIL]` plus `record_failure()`. Before each step it re-checks `scene_activated_in_window`, and aborts with `[SKIP]` if a scene was activated meanwhile.
   - Startup: if `off_validation.enabled` but no inventory has `resources.v1`, log `[WARN] off validation disabled: inventory has no v1 rules (regenerate inventory)` and register no listeners.
   - Startup log line: `Monitoring <n> switch button(s) for room-off jobs (<rooms>)`.
+  - For every configured room that matches no job (neither by `room_name` nor by `room_id`), log `[WARN] off validation: room '<name>' has no switch off-rule (check name or use room id)`. Room names contain non-ASCII characters (an earlier AppDaemon log showed garbled umlauts), so a silent mismatch must be visible. Accepting the v2 room id is the ASCII-safe alternative.
 
 - [ ] **Step 1: Write failing tests** (fixture: the Task 2 inventory plus `v1`, registry incl. the event entity, `off_validation: {enabled: true, rooms: ["Room_Office"]}`):
   - `test_listens_to_switch_buttons_of_enabled_rooms_only`.
@@ -167,6 +183,10 @@
   - `test_room_off_supersedes_pending_scene_validation`: scene activation pending, then a confirmed room-off. The scene validation aborts (no `scene/turn_on`).
   - `test_old_inventory_disables_off_validation_with_warning`: no `v1` key gives no switch listeners and a `[WARN]` log line, and the existing scene listeners are still registered.
   - `test_off_validation_disabled_by_default`: no `off_validation` arg gives no switch listeners.
+  - `test_restored_event_state_after_restart_is_ignored`: `on_switch_event(..., old="unavailable", new=<t>)`, and separately `new` = 60 s before `now`. Neither schedules anything.
+  - `test_newer_press_replaces_pending_check`: two presses 2 s apart, then `run_scheduled()`. Only the second check evaluates (one `[OK]`/`missed` result, not two).
+  - `test_unknown_configured_room_warns`: `rooms: ["Room_Missing"]` logs the `[WARN] ... has no switch off-rule` line.
+  - `test_room_matched_by_id`: `rooms: [<room v2 id>]` registers the listener.
 - [ ] **Step 2: Run, verify FAIL.**
 - [ ] **Step 3: Implement** the config, listeners and methods above.
 - [ ] **Step 4: Run, verify PASS** (all tests).
