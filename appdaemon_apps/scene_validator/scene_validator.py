@@ -1205,7 +1205,8 @@ class SceneValidator(hass.Hass):
                 self.off_jobs.setdefault(entity, []).append(job)
 
         for entity in self.off_jobs:
-            self.listen_state(self.on_switch_event, entity)
+            # Full state: event_type must come from the triggering change, not a later read
+            self.listen_state(self.on_switch_event, entity, attribute="all")
         room_names = sorted({job['room_name'] or job['room_id']
                              for jobs in self.off_jobs.values() for job in jobs})
         self.log(f"Monitoring {len(self.off_jobs)} switch button(s) for room-off jobs "
@@ -1222,13 +1223,15 @@ class SceneValidator(hass.Hass):
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
-    def on_switch_event(self, entity, _attribute, old, new, _kwargs):
-        """Handle a Hue button event entity state change (state = press time)."""
+    def on_switch_event(self, entity, _attribute, old_full, new_full, _kwargs):
+        """Handle a Hue button event entity change (full state; state = press time)."""
+        old = old_full.get('state') if isinstance(old_full, dict) else None
+        new = new_full.get('state') if isinstance(new_full, dict) else None
         if old == new or old in (None, "unknown", "unavailable") or new in (None, "unknown", "unavailable"):
             self.log(f"Skipping {entity} - not a new press ({old} -> {new})", level="DEBUG")
             return
 
-        event_type = self.get_state(entity, attribute="event_type")
+        event_type = (new_full.get('attributes') or {}).get('event_type')
         jobs = [job for job in self.off_jobs.get(entity, []) if job['event_type'] == event_type]
         if not jobs:
             return

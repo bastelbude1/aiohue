@@ -41,8 +41,10 @@ class FakeHass:
     def call_service(self, service, **kwargs):
         self.service_calls.append((service, kwargs))
 
-    def listen_state(self, callback, entity_id, **_kwargs):
+    def listen_state(self, callback, entity_id, **kwargs):
         self.listeners.append((callback.__name__, entity_id))
+        self.listener_kwargs = getattr(self, "listener_kwargs", {})
+        self.listener_kwargs[(callback.__name__, entity_id)] = kwargs
 
     def get_state(self, entity_id=None, attribute=None, **_kwargs):
         if attribute == "all":

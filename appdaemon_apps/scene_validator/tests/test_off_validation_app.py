@@ -88,10 +88,15 @@ def set_light(app, entity, state, offset):
     }
 
 
+def event_state(state, event_type="short_release"):
+    """Full event entity state, as AppDaemon passes it with attribute="all"."""
+    return {"state": state, "attributes": {"event_type": event_type}}
+
+
 def press(app, event_type="short_release", offset=0.0):
     t_press = app.now + timedelta(seconds=offset)
-    app.attributes.setdefault(BTN_ENTITY, {})["event_type"] = event_type
-    app.on_switch_event(BTN_ENTITY, "state", "2026-11-22T10:00:00+00:00", t_press.isoformat(), {})
+    app.on_switch_event(BTN_ENTITY, "all", event_state("2026-11-22T10:00:00+00:00"),
+                        event_state(t_press.isoformat(), event_type), {})
     return t_press
 
 
@@ -232,12 +237,31 @@ def test_ambiguous_press_without_evidence_sends_nothing(ambiguous_app):
 
 def test_restored_event_state_after_restart_is_ignored(app):
     t = app.now.isoformat()
-    app.attributes[BTN_ENTITY] = {"event_type": "short_release"}
 
-    app.on_switch_event(BTN_ENTITY, "state", "unavailable", t, {})
+    app.on_switch_event(BTN_ENTITY, "all", event_state("unavailable"), event_state(t), {})
     stale = (app.now - timedelta(seconds=60)).isoformat()
-    app.on_switch_event(BTN_ENTITY, "state", "2026-11-22T10:00:00+00:00", stale, {})
+    app.on_switch_event(BTN_ENTITY, "all", event_state("2026-11-22T10:00:00+00:00"),
+                        event_state(stale), {})
 
+    assert app.scheduled == []
+
+
+def test_switch_listener_gets_full_state(app):
+    assert app.listener_kwargs[("on_switch_event", BTN_ENTITY)] == {"attribute": "all"}
+
+
+def test_event_type_is_taken_from_triggering_state(app):
+    # The entity already moved on to short_release; the triggering change was initial_press
+    app.attributes[BTN_ENTITY] = {"event_type": "short_release"}
+    app.on_switch_event(BTN_ENTITY, "all", event_state("2026-11-22T10:00:00+00:00"),
+                        event_state(app.now.isoformat(), "initial_press"), {})
+    assert app.scheduled == []
+
+
+def test_attribute_only_change_is_not_a_press(app):
+    t = app.now.isoformat()
+    app.on_switch_event(BTN_ENTITY, "all", event_state(t, "initial_press"),
+                        event_state(t, "short_release"), {})
     assert app.scheduled == []
 
 
