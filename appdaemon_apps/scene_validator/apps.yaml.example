@@ -4,6 +4,7 @@ scene_validator:
 
   # Inventory paths
   inventory_dir: /homeassistant/hue_inventories
+  # entity_registry_path: /homeassistant/.storage/core.entity_registry  # optional (default)
 
   # Timing Configuration (all values in seconds)
   transition_delay: 5              # Wait after scene activation before Level 1 validation (seconds)

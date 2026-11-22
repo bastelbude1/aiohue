@@ -1,12 +1,12 @@
 # Scene Validator for Philips Hue
 
-**Version:** 2.2.0-FORMATTED
+**Version:** 2.3.0
 
 AppDaemon automation for validating Philips Hue scene activations in Home Assistant with intelligent 3-level escalation.
 
 ## Features
 
-- **Universal Scene Detection**: Detects scene activations from any source (HA UI, Hue app, physical switches, Hue automations)
+- **Scene Detection from any source**: HA-initiated activations via `scene.*` state changes; activations from outside HA (Hue app, physical switches, Hue automations) via the Hue active-scene `select.*` entities (Home Assistant 2026.x+). Select options are mapped to the exact scene by ID, reproducing HA's numbering of duplicate names within a group.
 - **3-Level Escalation**: Validate → Re-trigger → Individual Control
 - **Adaptive Delays**: Automatically uses 2x/3x delays when only color temperature fails
 - **Configurable Tolerances**: Brightness, color (XY), and color temperature validation
@@ -103,6 +103,7 @@ Set `debug_logging: false` to only show failures (cleaner logs for production).
 
 ## Version History
 
+- **2.3.0**: Detect activations from outside HA via Hue select entities; listeners no longer depend on HA states at startup; optional `entity_registry_path`
 - **2.2.0-FORMATTED**: Consistent logging format + debug flag
 - **2.1.1-CLEAN**: Production ready - debug logs removed
 - **2.1.0-FINAL**: All tolerances and delays configurable

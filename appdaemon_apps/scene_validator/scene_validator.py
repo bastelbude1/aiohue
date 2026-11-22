@@ -3,10 +3,11 @@ AppDaemon Scene Validator for Philips Hue Integration
 
 Validates Hue scene activations in Home Assistant with 3-level escalation
 and intelligent fallback mechanisms. Detects scene activations from ANY
-source (HA UI, Hue app, physical switches, Hue automations).
+source (HA UI, Hue app, physical switches, Hue automations) via the Hue
+active-scene select entities (HA 2026.x+) plus scene.* state changes.
 
 Features:
-- Universal scene detection (HA, Hue app, switches, automations)
+- Scene detection from HA (scene.*) and from outside HA (Hue select.*)
 - 3-level escalation (validate → re-trigger → individual control)
 - Intelligent debouncing (prevents duplicate validations)
 - Entity mapping (Hue resource ID ↔ HA entity_id)
@@ -20,10 +21,10 @@ Requirements:
 - Hue bridge inventories in /homeassistant/hue_inventories/
 
 Author: Scene Validator
-Version: 2.2.0-FORMATTED (Consistent logging format + debug flag)
+Version: 2.3.0 (Detect external activations via Hue active-scene selects)
 """
 
-__VERSION__ = "2.2.0-FORMATTED"
+__VERSION__ = "2.3.0"
 
 import appdaemon.plugins.hass.hassapi as hass
 import json
@@ -31,6 +32,56 @@ import time
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+
+SCENE_SELECT_SUFFIX = "_scene_select"
+_GROUP_RID_RE = re.compile(r"rid='([^']+)'")
+
+
+def _scene_group_rid(scene: Dict[str, Any]) -> Optional[str]:
+    """Return the group id of an inventory scene (dict or ResourceIdentifier repr)."""
+    group = scene.get('group')
+    if isinstance(group, dict):
+        return group.get('rid')
+    if isinstance(group, str):
+        match = _GROUP_RID_RE.search(group)
+        return match.group(1) if match else None
+    return None
+
+
+def resolve_scene_entity_from_select(
+    select_unique_id: str,
+    option: str,
+    inventories: List[Dict[str, Any]],
+    hue_id_to_entity_id: Dict[str, str],
+) -> Optional[str]:
+    """
+    Map a Hue scene select option to the exact scene.* entity_id via scene ID.
+
+    The select entity only exposes scene names, and Hue allows duplicate names
+    within a group. Rebuilds the option names exactly like Home Assistant's
+    hue/v2/select.py (_build_scene_option_maps): sort by (name, id), suffix
+    repeats with " (2)", " (3)", ... - so each option maps to one scene ID.
+    """
+    group_id = select_unique_id[:-len(SCENE_SELECT_SUFFIX)]
+    group_scenes = sorted(
+        (
+            (scene.get('metadata', {}).get('name', ''), scene.get('id'))
+            for inventory in inventories
+            for scene in inventory.get('resources', {}).get('scenes', {}).get('items', [])
+            if _scene_group_rid(scene) == group_id
+        ),
+    )
+    option_to_scene_id: Dict[str, str] = {}
+    for name, scene_id in group_scenes:
+        candidate = name
+        repeat = 1
+        while candidate in option_to_scene_id:
+            repeat += 1
+            candidate = f"{name} ({repeat})"
+        option_to_scene_id[candidate] = scene_id
+
+    scene_id = option_to_scene_id.get(option)
+    return hue_id_to_entity_id.get(scene_id) if scene_id else None
 
 
 class SceneValidator(hass.Hass):
@@ -52,6 +103,9 @@ class SceneValidator(hass.Hass):
 
         # Configuration parameters
         self.inventory_dir = self.args.get('inventory_dir', '/homeassistant/hue_inventories')
+        self.entity_registry_path = self.args.get(
+            'entity_registry_path', '/homeassistant/.storage/core.entity_registry'
+        )
         self.transition_delay = self.args.get('transition_delay', 5)
         self.validation_delay = self.args.get('validation_delay', 2)
         self.validation_debounce = self.args.get('validation_debounce', 30)
@@ -79,6 +133,7 @@ class SceneValidator(hass.Hass):
         # State tracking
         self.inventories = []
         self.hue_id_to_entity_id = {}  # Hue unique_id -> HA entity_id mapping cache
+        self.select_entity_to_unique_id = {}  # select.*_szene -> "<group_id>_scene_select"
         self.circuit_breaker_state = 'CLOSED'
         self.circuit_breaker_failures = 0
         self.circuit_breaker_successes = 0
@@ -115,7 +170,7 @@ class SceneValidator(hass.Hass):
 
         self.log("Validator initialized successfully")
         self.log(f"Inventory directory: {self.inventory_dir}")
-        self.log("Detection: Universal (HA, Hue app, switches)")
+        self.log("Detection: scene.* (HA-initiated) + Hue select.* (bridge-reported)")
         self.log(f"Transition delay: {self.transition_delay}s")
         self.log(f"Validation delay: {self.validation_delay}s")
         self.log(f"Level 3 settle delay: {self.level3_settle_delay}s")
@@ -224,7 +279,7 @@ class SceneValidator(hass.Hass):
         but future HA versions may change the internal storage format.
         """
         self.log("Loading entity registry mapping...", level="DEBUG")
-        registry_file = Path("/homeassistant/.storage/core.entity_registry")
+        registry_file = Path(self.entity_registry_path)
         self.log(f"Registry file path: {registry_file}, exists: {registry_file.exists()}", level="DEBUG")
 
         if not registry_file.exists():
@@ -254,6 +309,8 @@ class SceneValidator(hass.Hass):
                 # Only map Hue platform entities
                 if platform == 'hue' and entity_id and unique_id:
                     self.hue_id_to_entity_id[unique_id] = entity_id
+                    if unique_id.endswith(SCENE_SELECT_SUFFIX):
+                        self.select_entity_to_unique_id[entity_id] = unique_id
                     hue_count += 1
 
             self.log(f"Loaded entity registry mapping: {hue_count} Hue entities", level="DEBUG")
@@ -280,14 +337,17 @@ class SceneValidator(hass.Hass):
         """
         scene_count = 0
 
-        # Get all scene entities
-        all_scenes = self.get_state("scene")
+        # Registry entries cover Hue scenes even if initialize() runs before
+        # AppDaemon has received HA states (startup race seen with 4.5.16).
+        all_scenes = set(self.get_state("scene") or {}) | {
+            entity_id for entity_id in self.hue_id_to_entity_id.values()
+            if entity_id.startswith("scene.")
+        }
 
         if not all_scenes:
-            self.error("No scene entities found in Home Assistant")
-            return
+            self.error("No scene entities found in Home Assistant or entity registry")
 
-        for entity_id in all_scenes.keys():
+        for entity_id in sorted(all_scenes):
             # Monitor all scene entities - filtering happens later
             # Listen to state changes (scene state IS the activation timestamp)
             self.listen_state(self.on_scene_state_changed, entity_id)
@@ -295,6 +355,12 @@ class SceneValidator(hass.Hass):
             self.log(f"Monitoring: {entity_id}", level="DEBUG")
 
         self.log(f"Monitoring {scene_count} scene(s) for activations")
+
+        # Hue active-scene selects report activations from outside HA as well
+        for select_entity in self.select_entity_to_unique_id:
+            self.listen_state(self.on_select_state_changed, select_entity)
+        self.log(f"Monitoring {len(self.select_entity_to_unique_id)} Hue scene select(s) "
+                 f"for bridge-reported activations")
 
     def is_hue_scene(self, entity_id: str) -> bool:
         """
@@ -359,6 +425,36 @@ class SceneValidator(hass.Hass):
             self.log(f"Skipping {entity} - no state change", level="DEBUG")
             return
 
+        self._handle_scene_activation(entity, source="scene entity (HA-initiated)")
+
+    def on_select_state_changed(self, entity, _attribute, old, new, _kwargs):
+        """
+        Handle a Hue scene select change (active scene of a room/zone).
+
+        Since HA 2026.x the Hue integration exposes the bridge-reported active
+        scene per group as select.*. This is the only HA signal for activations
+        from outside HA (Hue app, Hue switches, Hue automations) - the scene.*
+        state only changes on HA-initiated activations.
+        """
+        if old == new or new is None or new in ("unavailable", "unknown"):
+            self.log(f"Skipping {entity} - no active scene", level="DEBUG")
+            return
+
+        select_unique_id = self.select_entity_to_unique_id.get(entity)
+        scene_entity = None
+        if select_unique_id:
+            scene_entity = resolve_scene_entity_from_select(
+                select_unique_id, new, self.inventories, self.hue_id_to_entity_id
+            )
+        if not scene_entity:
+            self.log(f"[WARN] Could not resolve '{new}' from {entity} to a scene entity "
+                     f"(smart scene or inventory outdated?)", level="WARNING")
+            return
+
+        self._handle_scene_activation(scene_entity, source=f"{entity} (bridge-reported)")
+
+    def _handle_scene_activation(self, entity: str, source: str):
+        """Debounce, filter and schedule validation for an activated scene entity."""
         # Debouncing: avoid duplicate validations within window
         now = time.time()
 
@@ -377,7 +473,7 @@ class SceneValidator(hass.Hass):
                         f"(debounce: {self.validation_debounce}s)", level="DEBUG")
                 return
 
-        self.log(f"Scene activated: {entity} (source: ANY - HA/Hue app/switch)")
+        self.log(f"Scene activated: {entity} (source: {source})")
 
         # Check if scene should be validated (filtering logic)
         # Note: scene_uid not available in AppDaemon state attributes
