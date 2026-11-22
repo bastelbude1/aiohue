@@ -246,3 +246,29 @@ Production rollout: enable for `Room_Office` only.
   aiohttp with the bridge's self-signed certificate).
 - Exact log wording, keeping the existing `[OK]/[FAIL]/[SKIP]` prefixes.
 - Version number (suggest 2.4.0).
+
+## Amendment 2026-11-22: deliberate room-off without a switch press
+
+Found in the ha-test run: a scene was activated, and within the 5 s
+transition delay **all** its lights were switched off from the Hue app
+(no switch press, so there was no off-job). The existing scene validation
+then saw "scene active, lights off" and re-triggered the scene.
+
+Owner decision: treat this as a deliberate room-off.
+
+Rule (scene validation, checked before the Level 2 re-trigger, before Level 2
+validation, and before Level 3 control): if **every** light that the scene
+expects to be ON is now `off`, **and** each of those lights has
+`last_updated >= activation time` (it changed after the activation), then
+log `[SKIP] <step> - all scene lights switched off after activation
+(deliberate room off)`. Do not re-trigger, do not control lights, and do not
+record a failure.
+
+Not covered by this rule (still corrected as before):
+- Some expected-on lights are off while others are on (a single lamp switched
+  off or missed).
+- Expected-on lights that are off but have **not** changed since the
+  activation. They missed the scene command, which is what the validator
+  exists to fix.
+- Expected-on lights that are unavailable or have no state. The rule needs
+  every expected-on light to be known and off.
