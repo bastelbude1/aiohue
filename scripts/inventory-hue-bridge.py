@@ -375,7 +375,7 @@ async def inventory_bridge(bridge_ip: str, username: str, client_key: Optional[s
 
         # Retrieve v1 rules and sensors (owner field stripped)
         try:
-            inventory["resources"]["v1"] = await extras.fetch_v1(bridge_ip, username)
+            inventory["resources"]["v1"] = await extras.fetch_v1(bridge, username)
             print(f"      [OK] Retrieved v1 rules: {len(inventory['resources']['v1']['rules'])}")
         except Exception as e:
             print(f"      [WARN] Error retrieving v1 data: {e}", file=sys.stderr)

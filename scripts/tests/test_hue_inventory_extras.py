@@ -87,3 +87,65 @@ def test_serialize_behaviors():
     assert serialize_behaviors([inst], scripts) == [
         {"id": "i1", "name": "Auto", "script_name": "Motion",
          "enabled": True, "configuration": {"k": "v"}}]
+
+
+# ---- fetch_v1 (fake bridge, no network) ----
+import asyncio  # noqa: E402
+import types  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+
+import pytest  # noqa: E402
+
+import hue_inventory_extras as extras  # noqa: E402
+
+USER = "secretuser123"
+
+
+@pytest.fixture(autouse=True)
+def fake_aiohttp(monkeypatch):
+    mod = types.ModuleType("aiohttp")
+    mod.ClientTimeout = lambda total: ("timeout", total)
+    monkeypatch.setitem(sys.modules, "aiohttp", mod)
+
+
+class FakeBridge:
+    def __init__(self, responses=None, exc=None):
+        self.responses, self.exc, self.calls = responses or {}, exc, []
+
+    @asynccontextmanager
+    async def create_request(self, method, path, **kwargs):
+        self.calls.append((method, path, kwargs))
+        if self.exc:
+            raise self.exc
+        data = self.responses[path.rsplit("/", 1)[1]]
+
+        async def _json():
+            return data
+        yield NS(status=200, json=_json)
+
+
+def test_fetch_v1_returns_sanitized_rules_and_sensors():
+    b = FakeBridge({
+        "rules": {"1": {"name": "r", "owner": USER, "conditions": [], "actions": []}},
+        "sensors": {"2": {"name": "s", "type": "ZLLSwitch", "uniqueid": "u", "x": 1}},
+    })
+    out = asyncio.run(extras.fetch_v1(b, USER))
+    assert "owner" not in out["rules"]["1"]
+    assert out["sensors"] == {"2": {"name": "s", "type": "ZLLSwitch", "uniqueid": "u"}}
+    assert all(c[2]["timeout"] == ("timeout", 10) for c in b.calls)
+
+
+def test_fetch_v1_list_error_raises_without_username():
+    b = FakeBridge({"rules": [{"error": {"type": 1, "description": "unauthorized user"}}]})
+    with pytest.raises(ValueError) as ei:
+        asyncio.run(extras.fetch_v1(b, USER))
+    assert USER not in str(ei.value)
+    assert "unauthorized user" in str(ei.value)
+
+
+def test_fetch_v1_exception_text_has_no_username():
+    b = FakeBridge(exc=OSError(f"Cannot connect https://192.168.1.100/api/{USER}/rules"))
+    with pytest.raises(RuntimeError) as ei:
+        asyncio.run(extras.fetch_v1(b, USER))
+    assert USER not in str(ei.value) and "192.168" not in str(ei.value)
+    assert ei.value.__cause__ is None and ei.value.__suppress_context__

@@ -1,7 +1,7 @@
 """Pure helpers for the Hue bridge inventory (rooms/zones, buttons, v1 rules, behaviors).
 
 Everything here duck-types on aiohue objects (``.type.value`` etc.) so it can be
-tested without aiohue installed. Only ``fetch_v1`` does I/O (aiohttp, imported lazily).
+tested without aiohue installed. Only ``fetch_v1`` does I/O (via aiohue session; aiohttp imported lazily).
 """
 
 
@@ -79,14 +79,43 @@ def serialize_behaviors(instances, scripts):
     } for i in instances]
 
 
-async def fetch_v1(bridge_ip, username):
-    """Fetch v1 rules and sensors (read-only). Bridge cert is self-signed."""
+def _v1_error_text(data):
+    """Return the v1 error description(s) if ``data`` is a v1 error list, else None."""
+    if isinstance(data, list):
+        descs = [str(e["error"].get("description", "unknown"))
+                 for e in data if isinstance(e, dict) and isinstance(e.get("error"), dict)]
+        return "; ".join(descs) or "unexpected v1 response"
+    return None
+
+
+async def _get_v1(bridge, path, timeout):
+    async with bridge.create_request("get", path, timeout=timeout) as resp:
+        status = getattr(resp, "status", None)
+        if isinstance(status, int) and status >= 400:
+            raise RuntimeError(f"HTTP {status}")
+        data = await resp.json()
+    err = _v1_error_text(data)
+    if err is not None:
+        raise ValueError(f"v1 API error: {err}")
+    return data
+
+
+async def fetch_v1(bridge, username):
+    """Fetch v1 rules and sensors (read-only) over aiohue's own session.
+
+    Raised errors never contain the URL or username.
+    """
     import aiohttp
 
-    base = f"https://{bridge_ip}/api/{username}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{base}/rules", ssl=False) as r:
-            rules = await r.json()
-        async with session.get(f"{base}/sensors", ssl=False) as r:
-            sensors = await r.json()
-    return {"rules": sanitize_v1_rules(rules), "sensors": serialize_v1_sensors(sensors)}
+    timeout = aiohttp.ClientTimeout(total=10)
+    try:
+        rules = await _get_v1(bridge, f"api/{username}/rules", timeout)
+        sensors = await _get_v1(bridge, f"api/{username}/sensors", timeout)
+        return {"rules": sanitize_v1_rules(rules),
+                "sensors": serialize_v1_sensors(sensors)}
+    except ValueError:
+        raise
+    except Exception as e:
+        status = getattr(e, "status", None)
+        suffix = f" (HTTP {status})" if isinstance(status, int) else ""
+        raise RuntimeError(f"v1 request failed: {type(e).__name__}{suffix}") from None
