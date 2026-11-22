@@ -30,6 +30,14 @@ scene_validator:
     success_threshold: 2           # Number of successes required to close circuit (from half-open state)
     timeout: 600                   # Cooldown period when circuit is open (seconds, 10 minutes)
 
+  # Room-off validation (2.4.0+, needs inventories with v1 rules)
+  # Disabled by default. After a Hue switch press that switches a room off,
+  # check the room's lights and switch off any that missed the command.
+  # off_validation:
+  #   enabled: false          # default off
+  #   rooms: []               # room names or v2 ids; empty = none
+  #   off_check_delay: 5      # seconds after the press
+
   # Scene Filtering
   scene_filter:
     include_labels: []             # Hue scene labels to include (empty = use patterns instead)

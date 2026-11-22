@@ -14,17 +14,20 @@ Features:
 - Circuit breaker (kill switch for runaway validations)
 - Rate limiting (per-scene and global)
 - Scene filtering (labels, patterns, exclusions)
+- Room-off validation (optional): after a Hue switch press that switches a
+  room off, verify the room's lights went off and switch off any that missed
 
 Requirements:
 - AppDaemon 4.x
 - Home Assistant with Hue integration
-- Hue bridge inventories in /homeassistant/hue_inventories/
+- Hue bridge inventories in /homeassistant/hue_inventories/ (room-off
+  validation needs inventories with v1 rules from scripts/inventory-hue-bridge.py)
 
 Author: Scene Validator
-Version: 2.3.2 (Color temperature in kelvin for HA 2026.x)
+Version: 2.4.0 (Room-off validation after Hue switch presses)
 """
 
-__VERSION__ = "2.3.2"
+__VERSION__ = "2.4.0"
 
 import appdaemon.plugins.hass.hassapi as hass
 import json
@@ -339,6 +342,8 @@ class SceneValidator(hass.Hass):
         self.log("Validator initialized successfully")
         self.log(f"Inventory directory: {self.inventory_dir}")
         self.log("Detection: scene.* (HA-initiated) + Hue select.* (bridge-reported)")
+        if self.off_validation_enabled:
+            self.log("Detection: room-off on Hue switch presses (off_validation)")
         self.log(f"Transition delay: {self.transition_delay}s")
         self.log(f"Validation delay: {self.validation_delay}s")
         self.log(f"Level 3 settle delay: {self.level3_settle_delay}s")

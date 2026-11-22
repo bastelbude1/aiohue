@@ -1,6 +1,6 @@
 # Scene Validator for Philips Hue
 
-**Version:** 2.3.2
+**Version:** 2.4.0
 
 AppDaemon automation for validating Philips Hue scene activations in Home Assistant with intelligent 3-level escalation.
 
@@ -13,12 +13,14 @@ AppDaemon automation for validating Philips Hue scene activations in Home Assist
 - **Debug Logging**: Optional verbose logging for troubleshooting
 - **Circuit Breaker**: Automatic kill switch for runaway validations
 - **Rate Limiting**: Per-scene and global validation limits
+- **Room-off Validation** (optional, off by default): after a Hue switch press switches a room off, checks about 5 s later that all room lights are off and switches off lights that missed the command. Lights the owner changed after the press are never touched.
 
 ## Requirements
 
 - AppDaemon 4.x
 - Home Assistant with Hue integration (V2)
 - Hue bridge inventories in `/homeassistant/hue_inventories/`
+- For room-off validation: inventories written by `scripts/inventory-hue-bridge.py` (2.4.0 format, with v1 `rules`). Older inventories disable room-off validation with a `[WARN]` line; scene validation is unaffected.
 
 ## Installation
 
@@ -63,7 +65,28 @@ scene_validator:
     name_patterns:
       - ".*Standard$"              # Scenes ending with "Standard"
       - ".*Nachtlicht$"            # Scenes ending with "Nachtlicht"
+
+  # Room-off validation (optional, disabled by default)
+  off_validation:
+    enabled: false                 # default off
+    rooms: []                      # room names or v2 ids; empty = none
+    off_check_delay: 5             # seconds after the press
 ```
+
+### Room-off Validation (2.4.0)
+
+When a Hue switch press switches a room off, the validator checks about
+`off_check_delay` seconds later whether every light in that room is off.
+Lights that missed the command (still on, and unchanged since the press) are
+switched off. Only rooms listed in `off_validation.rooms` are covered.
+
+Limitations:
+- Only Hue switches configured as v1 rules on the bridge are covered. Hue app "room off", Hue schedules, and off commands sent from HA are not covered.
+- The first press after a switch's event entity is first created in HA is ignored, and presses replayed after an HA restart are ignored.
+- Known assumption: it only helps if the bridge reports a lamp that missed the command as still on.
+- A lamp the owner changes after the press is never touched.
+
+Example: `off_validation.rooms: [Room_Office]`. Enable one room first and watch the log for `Room off` lines.
 
 ## How It Works
 
@@ -103,6 +126,7 @@ Set `debug_logging: false` to only show failures (cleaner logs for production).
 
 ## Version History
 
+- **2.4.0**: Room-off validation after Hue switch presses (optional, `off_validation`); inventory script writes rooms/zones, buttons and v1 `rules`
 - **2.3.2**: HA 2026.x compatibility for color temperature - Level 3 sends `color_temp_kelvin` (HA rejects the removed `color_temp`), validation reads `color_temp_kelvin` (color temperature checks were silently skipped)
 - **2.3.1**: Abort validation/escalation when a newer scene was activated on any of the same lights (also unvalidated scenes and overlapping zones); re-activating a scene after another scene took over its lights is no longer swallowed by the debounce
 - **2.3.0**: Detect activations from outside HA via Hue select entities; listeners no longer depend on HA states at startup; optional `entity_registry_path`
