@@ -2,6 +2,7 @@
 
 import sys
 import types
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -16,6 +17,10 @@ class FakeHass:
         self.listeners = []
         self.logs = []
         self.service_calls = []
+        self.now = datetime(2026, 11, 22, 18, 0, 0, tzinfo=timezone.utc)
+
+    def get_now(self):
+        return self.now
 
     def log(self, msg, level="INFO", **_kwargs):
         self.logs.append((level, msg))

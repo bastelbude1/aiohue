@@ -31,7 +31,7 @@ import json
 import time
 import re
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any, Tuple
 
 SCENE_SELECT_SUFFIX = "_scene_select"
@@ -306,6 +306,15 @@ class SceneValidator(hass.Hass):
         self.color_tolerance = self.args.get('color_tolerance', 0.01)  # ±0.01
         self.color_temp_tolerance = self.args.get('color_temp_tolerance', 50)  # ±50 mireds (lenient for Hue variations)
 
+        # Room-off validation (switch press -> verify all room lights went off)
+        off_config = self.args.get('off_validation') or {}
+        self.off_validation_enabled = bool(off_config.get('enabled', False))
+        self.off_validation_rooms = list(off_config.get('rooms') or [])
+        self.off_check_delay = off_config.get('off_check_delay', 5)
+        self.off_jobs = {}  # event entity -> [room-off jobs] (enabled rooms only)
+        self.light_activation_at = {}  # Hue light rid -> last scene activation time
+        self.latest_press = {}  # room_id -> t_press of the newest press (one pending check per room)
+
         # Debug logging - when False, only log failures and errors (not OK/success messages)
         self.debug_logging = self.args.get('debug_logging', False)
 
@@ -325,6 +334,7 @@ class SceneValidator(hass.Hass):
         # Listen for scene activations from ANY source (HA, Hue app, switches)
         # Monitor state changes instead of call_service events
         self.setup_scene_listeners()
+        self.setup_off_validation()
 
         self.log("Validator initialized successfully")
         self.log(f"Inventory directory: {self.inventory_dir}")
@@ -628,16 +638,24 @@ class SceneValidator(hass.Hass):
                             if isinstance(a, dict) and a.get('target', {}).get('rid')]
         return []
 
-    def _record_activation(self, scene_entity: str) -> int:
-        """Mark the scene's lights as owned by this activation; return its sequence number."""
+    def _claim_lights(self, owner: str, light_rids: List[str]) -> int:
+        """Mark the lights as owned by this activation; return its sequence number."""
         self._activation_seq += 1
-        for rid in self._scene_light_rids(scene_entity):
+        for rid in light_rids:
             _seq, previous_owner = self.light_last_activation.get(rid, (0, None))
-            if previous_owner and previous_owner != scene_entity:
+            if previous_owner and previous_owner != owner:
                 # A later re-activation of previous_owner is a real user choice
                 self.interrupted_scenes.add(previous_owner)
-            self.light_last_activation[rid] = (self._activation_seq, scene_entity)
+            self.light_last_activation[rid] = (self._activation_seq, owner)
         return self._activation_seq
+
+    def _record_activation(self, scene_entity: str) -> int:
+        """Mark the scene's lights as owned by this activation; return its sequence number."""
+        light_rids = self._scene_light_rids(scene_entity)
+        now = self.get_now()
+        for rid in light_rids:
+            self.light_activation_at[rid] = now
+        return self._claim_lights(scene_entity, light_rids)
 
     def _superseded_by(self, scene_entity: str, activation_seq: Optional[int]) -> Optional[str]:
         """Return the newer scene that took over any of this scene's lights, if any."""
@@ -713,16 +731,8 @@ class SceneValidator(hass.Hass):
             True if scene should be validated, False otherwise
         """
         # Check circuit breaker
-        if self.circuit_breaker_state == 'OPEN':
-            # Check if timeout expired - transition to HALF_OPEN
-            if (self.circuit_breaker_opened_at and
-                time.time() - self.circuit_breaker_opened_at >= self.cb_timeout):
-                self.circuit_breaker_state = 'HALF_OPEN'
-                self.circuit_breaker_successes = 0
-                self.log("Circuit breaker HALF_OPEN (timeout expired, testing)")
-            else:
-                self.log(f"Circuit breaker OPEN - skipping {entity_id}", level="WARNING")
-                return False
+        if not self._circuit_breaker_allows(entity_id):
+            return False
 
         # Check rate limits
         if not self.check_rate_limits(entity_id):
@@ -761,6 +771,20 @@ class SceneValidator(hass.Hass):
             return False
 
         # If no filters specified, validate all scenes
+        return True
+
+    def _circuit_breaker_allows(self, entity_id: str) -> bool:
+        """False while the circuit breaker is OPEN (moves to HALF_OPEN after the timeout)."""
+        if self.circuit_breaker_state == 'OPEN':
+            # Check if timeout expired - transition to HALF_OPEN
+            if (self.circuit_breaker_opened_at and
+                time.time() - self.circuit_breaker_opened_at >= self.cb_timeout):
+                self.circuit_breaker_state = 'HALF_OPEN'
+                self.circuit_breaker_successes = 0
+                self.log("Circuit breaker HALF_OPEN (timeout expired, testing)")
+            else:
+                self.log(f"Circuit breaker OPEN - skipping {entity_id}", level="WARNING")
+                return False
         return True
 
     def check_rate_limits(self, entity_id: str) -> bool:
@@ -1040,6 +1064,251 @@ class SceneValidator(hass.Hass):
 
         except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
             self.error(f"Exception during level 3 control: {e}")
+            import traceback
+            self.error(f"Traceback: {traceback.format_exc()}")
+            self.record_failure()
+
+    # ------------------------------------------------------------------
+    # Room-off validation (Hue switch press switches a room off)
+    # ------------------------------------------------------------------
+
+    def setup_off_validation(self):
+        """Build the room-off job table for the configured rooms and listen to their buttons."""
+        if not self.off_validation_enabled:
+            self.log("Off validation disabled", level="DEBUG")
+            return
+
+        def has_v1_rules(inventory: Dict[str, Any]) -> bool:
+            v1 = inventory.get('resources', {}).get('v1')
+            return isinstance(v1, dict) and isinstance(v1.get('rules'), dict)
+
+        if not any(has_v1_rules(inv) for inv in self.inventories):
+            self.log("[WARN] off validation disabled: inventory has no v1 rules "
+                     "(regenerate inventory)", level="WARNING")
+            return
+
+        all_jobs = build_off_jobs(self.inventories, self.hue_id_to_entity_id)
+        rooms = set(self.off_validation_rooms)
+
+        for room in self.off_validation_rooms:
+            if not any(room in (job['room_name'], job['room_id'])
+                       for jobs in all_jobs.values() for job in jobs):
+                self.log(f"[WARN] off validation: room '{room}' has no switch off-rule "
+                         f"(check name or use room id)", level="WARNING")
+
+        warned_empty = set()
+        self.off_jobs = {}
+        for entity, jobs in all_jobs.items():
+            for job in jobs:
+                if job['room_name'] not in rooms and job['room_id'] not in rooms:
+                    continue
+                if not job['lights']:
+                    if job['room_id'] not in warned_empty:
+                        warned_empty.add(job['room_id'])
+                        self.log(f"[WARN] off validation: room '{job['room_name']}' has no lights "
+                                 f"in the entity registry - not monitored", level="WARNING")
+                    continue
+                self.off_jobs.setdefault(entity, []).append(job)
+
+        for entity in self.off_jobs:
+            self.listen_state(self.on_switch_event, entity)
+        room_names = sorted({job['room_name'] or job['room_id']
+                             for jobs in self.off_jobs.values() for job in jobs})
+        self.log(f"Monitoring {len(self.off_jobs)} switch button(s) for room-off jobs "
+                 f"({', '.join(room_names)})")
+
+    @staticmethod
+    def _parse_ts(value: Any) -> Optional[datetime]:
+        """Parse an ISO timestamp (as AppDaemon returns it) to an aware datetime."""
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    def on_switch_event(self, entity, _attribute, old, new, _kwargs):
+        """Handle a Hue button event entity state change (state = press time)."""
+        if old == new or old in (None, "unknown", "unavailable") or new in (None, "unknown", "unavailable"):
+            self.log(f"Skipping {entity} - not a new press ({old} -> {new})", level="DEBUG")
+            return
+
+        event_type = self.get_state(entity, attribute="event_type")
+        jobs = [job for job in self.off_jobs.get(entity, []) if job['event_type'] == event_type]
+        if not jobs:
+            return
+
+        t_press = self._parse_ts(new)
+        if t_press is None:
+            self.log(f"[WARN] {entity}: cannot parse press time '{new}'", level="WARNING")
+            return
+        age = (self.get_now() - t_press).total_seconds()
+        if age > self.off_check_delay + 2:
+            # HA restores the last event state after a restart or reconnect
+            self.log(f"[SKIP] {entity}: press is {age:.0f}s old (restored state?)")
+            return
+
+        for job in jobs:
+            room = job['room_name']
+            self.latest_press[job['room_id']] = t_press
+            if not job['ambiguous']:
+                # Only an off-rule on this button: the press is the room-off
+                self._claim_lights(f"off:{room}", job['light_rids'])
+            self.log(f"[{room}] Room off press: {entity} ({event_type}), "
+                     f"check in {self.off_check_delay}s")
+            self.run_in(self.perform_off_check, self.off_check_delay, job=job, t_press=t_press)
+
+    def _read_room_lights(self, entities: List[str], room: str) -> Dict[str, Dict[str, Any]]:
+        """Current state and last_updated of the given lights (missing/unavailable left out)."""
+        lights_now = {}
+        missing = []
+        for entity in entities:
+            state = self.get_state(entity, attribute="all") or {}
+            last_updated = self._parse_ts(state.get('last_updated'))
+            if state.get('state') in (None, "unavailable", "unknown") or last_updated is None:
+                missing.append(entity)
+                continue
+            lights_now[entity] = {"state": state['state'], "last_updated": last_updated}
+        if missing:
+            self.log(f"[{room}] [WARN] Room off: no usable state for {', '.join(missing)} "
+                     f"- left out", level="WARNING")
+        return lights_now
+
+    def _scene_activated_since(self, light_rids: List[str], since: datetime) -> bool:
+        """True if a scene activation touched any of the lights at or after `since`."""
+        return any(self.light_activation_at.get(rid) and self.light_activation_at[rid] >= since
+                   for rid in light_rids)
+
+    def _off_send_allowed(self, room: str) -> bool:
+        """Shared circuit breaker and rate limits before sending any off command."""
+        label = f"off:{room}"
+        if not self._circuit_breaker_allows(label):
+            self.log(f"[{room}] [SKIP] Room off: circuit breaker open - no commands sent")
+            return False
+        if not self.check_rate_limits(label):
+            self.log(f"[{room}] [SKIP] Room off: rate limit - no commands sent")
+            return False
+        return True
+
+    def _turn_off_lights(self, entities: List[str]):
+        for entity in entities:
+            self.call_service("light/turn_off", entity_id=entity)
+
+    def perform_off_check(self, kwargs):
+        """Check the room lights after a room-off press; switch off lights that missed it."""
+        try:
+            job = kwargs['job']
+            t_press = kwargs['t_press']
+            room = job['room_name']
+            if self.latest_press.get(job['room_id']) != t_press:
+                self.log(f"[{room}] Room off check replaced by a newer press", level="DEBUG")
+                return
+
+            window_start = t_press - timedelta(seconds=1)
+            lights_now = self._read_room_lights(job['lights'], room)
+            if not lights_now:
+                self.log(f"[{room}] [SKIP] Room off: no light state available")
+                return
+
+            result, missed = classify_off_check(
+                lights_now, window_start,
+                self._scene_activated_since(job['light_rids'], window_start),
+                job['ambiguous'],
+            )
+            if result == "skip_scene":
+                self.log(f"[{room}] [SKIP] Room off: scene activated on room lights (scene step)")
+                return
+            if result == "skip_no_evidence":
+                self.log(f"[{room}] [SKIP] Room off: no off evidence (press was not a room-off)")
+                return
+
+            if job['ambiguous']:
+                # Confirmed now: pending scene validations on these lights must not fight it
+                self._claim_lights(f"off:{room}", job['light_rids'])
+
+            if result == "ok":
+                self.log(f"[{room}] [OK] Room off verified ({len(lights_now)} light(s))")
+                self.record_success()
+                return
+
+            if not self._off_send_allowed(room):
+                return
+            self.log(f"[{room}] [WARN] Room off missed by {', '.join(missed)} - "
+                     f"LEVEL 2: switching off", level="WARNING")
+            self._turn_off_lights(missed)
+            self.run_in(self.perform_off_level3, self.validation_delay,
+                        job=job, t_press=t_press, missed=missed)
+
+        except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
+            self.error(f"Exception during room off check: {e}")
+            import traceback
+            self.error(f"Traceback: {traceback.format_exc()}")
+            self.record_failure()
+
+    def _off_recheck(self, kwargs, step: str) -> Optional[List[str]]:
+        """Lights of `missed` still on and untouched since the press; None if the check must stop."""
+        job = kwargs['job']
+        t_press = kwargs['t_press']
+        room = job['room_name']
+        if self.latest_press.get(job['room_id']) != t_press:
+            self.log(f"[{room}] [SKIP] Room off {step} aborted - newer press")
+            return None
+        window_start = t_press - timedelta(seconds=1)
+        lights_now = self._read_room_lights(kwargs['missed'], room)
+        # Unambiguous rule on the subset: "on and no update since the press".
+        # A lamp the owner switched or dimmed meanwhile was updated and is left alone.
+        result, still_on = classify_off_check(
+            lights_now, window_start,
+            self._scene_activated_since(job['light_rids'], window_start), False,
+        )
+        if result == "skip_scene":
+            self.log(f"[{room}] [SKIP] Room off {step} aborted - scene activated on room lights")
+            return None
+        return still_on
+
+    def perform_off_level3(self, kwargs):
+        """Re-check lights switched off at Level 2; switch remaining ones off individually."""
+        try:
+            room = kwargs['job']['room_name']
+            still_on = self._off_recheck(kwargs, "Level 3")
+            if still_on is None:
+                return
+            if not still_on:
+                self.log(f"[{room}] [OK] Room off verified after LEVEL 2")
+                self.record_success()
+                return
+
+            if not self._off_send_allowed(room):
+                return
+            self.log(f"[{room}] [WARN] Room off still missed by {', '.join(still_on)} - "
+                     f"LEVEL 3: switching off individually", level="WARNING")
+            self._turn_off_lights(still_on)
+            self.run_in(self.perform_off_final_check, self.level3_settle_delay,
+                        **{**kwargs, 'missed': still_on})
+
+        except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
+            self.error(f"Exception during room off level 3: {e}")
+            import traceback
+            self.error(f"Traceback: {traceback.format_exc()}")
+            self.record_failure()
+
+    def perform_off_final_check(self, kwargs):
+        """Final check after Level 3: [OK] or [FAIL] + record_failure()."""
+        try:
+            room = kwargs['job']['room_name']
+            still_on = self._off_recheck(kwargs, "final check")
+            if still_on is None:
+                return
+            if still_on:
+                self.error(f"[{room}] [FAIL] Room off: still on after LEVEL 3: {', '.join(still_on)}")
+                self.record_failure()
+                return
+            self.log(f"[{room}] [OK] Room off verified after LEVEL 3")
+            self.record_success()
+
+        except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
+            self.error(f"Exception during room off final check: {e}")
             import traceback
             self.error(f"Traceback: {traceback.format_exc()}")
             self.record_failure()
