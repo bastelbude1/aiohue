@@ -75,8 +75,6 @@ scene_validator:
 
 ### Room-off Validation (2.4.0)
 
-All scene lights switched off within the check window (e.g. Hue app room off) is treated as a deliberate room off: the scene is not re-triggered.
-
 When a Hue switch press switches a room off, the validator checks about
 `off_check_delay` seconds later whether every light in that room is off.
 Lights that missed the command (still on, and unchanged since the press) are
@@ -88,6 +86,8 @@ Limitations:
 - Known assumption: it only helps if the bridge reports a lamp that missed the command as still on.
 - A lamp the owner changes after the press is never touched.
 - Hue-app generated off-rules usually also write a CLIP status sensor, so those buttons are treated as ambiguous and need evidence (a light switched off by the press) before anything is sent (safe direction). Only an unconditional off-rule makes a press a certain room-off.
+- Scene validation: if all lights a scene switched on are switched off within the check window (e.g. Hue app room off), this is treated as a deliberate room off and the scene is not re-triggered. (The switch-press room-off check still does not cover the Hue app.)
+- If a room is switched off just before a scene is activated and every lamp also misses the scene command, the scene may not be corrected (very unlikely).
 
 Example: `off_validation.rooms: [Room_Office]`. Enable one room first and watch the log for `Room off` lines.
 

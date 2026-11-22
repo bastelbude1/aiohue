@@ -1023,6 +1023,11 @@ class SceneValidator(hass.Hass):
                 self.record_success()
                 return
 
+            # Deliberate room off (all expected-on lights switched off after activation)
+            if self._deliberate_room_off(scene_entity, scene_data, activated_at,
+                                         "Level 2 re-trigger"):
+                return
+
             # Analyze what failed to determine adaptive delay
             only_color_temp_failed = (
                 len(self.last_validation_failures) > 0 and
@@ -1039,9 +1044,6 @@ class SceneValidator(hass.Hass):
 
             # LEVEL 2: Re-trigger scene (async scheduling to avoid blocking)
             if self._abort_if_superseded(scene_entity, activation_seq, "Level 2 re-trigger"):
-                return
-            if self._deliberate_room_off(scene_entity, scene_data, activated_at,
-                                         "Level 2 re-trigger"):
                 return
             self.log(f"[{scene_entity}] LEVEL 2: Re-triggering scene")
             self.call_service("scene/turn_on", entity_id=scene_entity)
