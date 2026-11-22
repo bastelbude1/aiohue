@@ -31,7 +31,8 @@ import json
 import time
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Tuple
 
 SCENE_SELECT_SUFFIX = "_scene_select"
 
@@ -211,6 +212,31 @@ def build_off_jobs(
                                for j in existing):
                         existing.append(job)
     return jobs
+
+
+def classify_off_check(
+    lights_now: Dict[str, Dict[str, Any]],
+    press_window_start: datetime,
+    scene_activated_in_window: bool,
+    ambiguous: bool,
+) -> Tuple[str, List[str]]:
+    """Decide what a room-off check found.
+
+    Returns ("skip_scene", []), ("skip_no_evidence", []), ("ok", []) or
+    ("missed", [sorted entities]). A light is "changed" if it was updated at or
+    after press_window_start; changed lights are never reported as missed.
+    """
+    if scene_activated_in_window:
+        return ("skip_scene", [])
+    changed = {e for e, v in lights_now.items() if v["last_updated"] >= press_window_start}
+    if ambiguous:
+        changed_off = [e for e in changed if lights_now[e]["state"] == "off"]
+        if not changed_off or len(changed_off) != len(changed):
+            return ("skip_no_evidence", [])
+    missed = sorted(e for e, v in lights_now.items() if v["state"] == "on" and e not in changed)
+    if not missed:
+        return ("ok", [])
+    return ("missed", missed)
 
 
 class SceneValidator(hass.Hass):
