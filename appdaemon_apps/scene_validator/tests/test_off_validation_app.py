@@ -370,9 +370,39 @@ def test_lamp_switched_on_by_owner_after_level2_is_left_alone(app):
     run_next(app, "perform_off_check")
 
     set_light(app, LAMP_B, "on", 6)  # owner switched it on again
+    app.circuit_breaker_state = "HALF_OPEN"
+    successes_before = app.circuit_breaker_successes
     app.run_scheduled()
 
     assert turn_offs(app) == [LAMP_B]
+    assert any("[SKIP] Room off check ended - light(s) changed by owner" in m
+               for _lvl, m in app.logs)
+    assert not any("[OK]" in m and "Room off" in m for _lvl, m in app.logs)
+    assert app.circuit_breaker_successes == successes_before
+
+
+def test_level3_forwards_only_its_own_kwargs(app):
+    press(app)
+    set_light(app, LAMP_A, "off", 0.3)
+    set_light(app, LAMP_B, "on", -3600)
+    run_next(app, "perform_off_check")
+    callback, kwargs = app.callbacks.pop(0)
+    callback({**kwargs, "__thread_id": "thread-1"})  # AppDaemon adds internal keys
+
+    final = [kw for name, _d, kw in app.scheduled if name == "perform_off_final_check"]
+    assert len(final) == 1
+    assert set(final[0]) == {"job", "t_press", "missed"}
+    assert final[0]["missed"] == [LAMP_B]
+
+
+@pytest.mark.parametrize("value, expected, warned", [("5", 5.0, False), ("abc", 5.0, True),
+                                                     (None, 5.0, True), (3, 3.0, False)])
+def test_off_check_delay_is_coerced(tmp_path, value, expected, warned):
+    app = build_app(tmp_path, off_validation={"enabled": True, "rooms": ["Room_Office"],
+                                              "off_check_delay": value})
+    assert app.off_check_delay == expected
+    assert isinstance(app.off_check_delay, float)
+    assert bool(warns(app, "off_check_delay invalid, using 5")) is warned
 
 
 # --- supersede -----------------------------------------------------------------
@@ -514,3 +544,21 @@ def test_unresolved_select_option_still_counts_as_scene_step(ambiguous_app):
     assert turn_offs(app) == []
     assert warns(app, "Could not resolve 'NewSceneNotInInventory'")
     assert any("[SKIP]" in m and "scene step" in m for _lvl, m in app.logs)
+
+
+def test_lamp_switched_on_by_owner_after_level3_is_not_reported(app):
+    press(app)
+    set_light(app, LAMP_A, "off", 0.3)
+    set_light(app, LAMP_B, "on", -3600)
+    run_next(app, "perform_off_check")
+    run_next(app, "perform_off_level3")
+    failures_before = app.circuit_breaker_failures
+
+    set_light(app, LAMP_B, "on", 9)  # owner switched it on again
+    app.run_scheduled()
+
+    assert turn_offs(app) == [LAMP_B, LAMP_B]
+    assert any("[SKIP] Room off check ended - light(s) changed by owner" in m
+               for _lvl, m in app.logs)
+    assert not any(("[OK]" in m or "[FAIL]" in m) and "Room off" in m for _lvl, m in app.logs)
+    assert app.circuit_breaker_failures == failures_before

@@ -339,7 +339,11 @@ class SceneValidator(hass.Hass):
         off_config = self.args.get('off_validation') or {}
         self.off_validation_enabled = bool(off_config.get('enabled', False))
         self.off_validation_rooms = list(off_config.get('rooms') or [])
-        self.off_check_delay = off_config.get('off_check_delay', 5)
+        try:
+            self.off_check_delay = float(off_config.get('off_check_delay', 5))
+        except (TypeError, ValueError):
+            self.log("[WARN] off_check_delay invalid, using 5", level="WARNING")
+            self.off_check_delay = 5.0
         self.off_jobs = {}  # event entity -> [room-off jobs] (enabled rooms only)
         self.light_activation_at = {}  # Hue light rid -> last scene activation time
         self.latest_press = {}  # room_id -> t_press of the newest press (one pending check per room)
@@ -1344,8 +1348,11 @@ class SceneValidator(hass.Hass):
             self.error(f"Traceback: {traceback.format_exc()}")
             self.record_failure()
 
-    def _off_recheck(self, kwargs, step: str) -> Optional[List[str]]:
-        """Lights of `missed` still on and untouched since the press; None if the check must stop."""
+    def _off_recheck(self, kwargs, step: str) -> Optional[Tuple[List[str], bool]]:
+        """(lights of `missed` still on and untouched since the press, owner switched one on).
+
+        None if the check must stop.
+        """
         job = kwargs['job']
         t_press = kwargs['t_press']
         room = job['room_name']
@@ -1363,16 +1370,28 @@ class SceneValidator(hass.Hass):
         if result == "skip_scene":
             self.log(f"[{room}] [SKIP] Room off {step} aborted - scene activated on room lights")
             return None
-        return still_on
+        # A light that is on but not in still_on was changed after the press
+        owner_changed = any(v['state'] == "on" and e not in still_on
+                            for e, v in lights_now.items())
+        return still_on, owner_changed
+
+    def _off_ended_by_owner(self, room: str, owner_changed: bool) -> bool:
+        """Log and return True if the check ends only because the owner changed a light."""
+        if owner_changed:
+            self.log(f"[{room}] [SKIP] Room off check ended - light(s) changed by owner")
+        return owner_changed
 
     def perform_off_level3(self, kwargs):
         """Re-check lights switched off at Level 2; switch remaining ones off individually."""
         try:
             room = kwargs['job']['room_name']
-            still_on = self._off_recheck(kwargs, "Level 3")
-            if still_on is None:
+            recheck = self._off_recheck(kwargs, "Level 3")
+            if recheck is None:
                 return
+            still_on, owner_changed = recheck
             if not still_on:
+                if self._off_ended_by_owner(room, owner_changed):
+                    return
                 self.log(f"[{room}] [OK] Room off verified after LEVEL 2")
                 self.record_success()
                 return
@@ -1383,7 +1402,7 @@ class SceneValidator(hass.Hass):
                      f"LEVEL 3: switching off individually", level="WARNING")
             self._turn_off_lights(still_on)
             self.run_in(self.perform_off_final_check, self.level3_settle_delay,
-                        **{**kwargs, 'missed': still_on})
+                        job=kwargs['job'], t_press=kwargs['t_press'], missed=still_on)
 
         except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
             self.error(f"Exception during room off level 3: {e}")
@@ -1395,8 +1414,11 @@ class SceneValidator(hass.Hass):
         """Final check after Level 3: [OK] or [FAIL] + record_failure()."""
         try:
             room = kwargs['job']['room_name']
-            still_on = self._off_recheck(kwargs, "final check")
-            if still_on is None:
+            recheck = self._off_recheck(kwargs, "final check")
+            if recheck is None:
+                return
+            still_on, owner_changed = recheck
+            if not still_on and self._off_ended_by_owner(room, owner_changed):
                 return
             if still_on:
                 self.error(f"[{room}] [FAIL] Room off: still on after LEVEL 3: {', '.join(still_on)}")
