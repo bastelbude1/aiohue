@@ -13,7 +13,7 @@ AppDaemon automation for validating Philips Hue scene activations in Home Assist
 - **Debug Logging**: Optional verbose logging for troubleshooting
 - **Circuit Breaker**: Automatic kill switch for runaway validations
 - **Rate Limiting**: Per-scene and global validation limits
-- **Room-off Validation** (optional, off by default): after a Hue switch press switches a room off, checks about 5 s later that all room lights are off and switches off lights that missed the command. Lights the owner changed after the press are never touched.
+- **Room-off Validation** (optional, off by default): after a Hue switch press switches a room off, checks `off_check_delay` seconds (default 5) later that all room lights are off and switches off lights that missed the command. Lights the owner changed after the press are never touched.
 
 ## Requirements
 
@@ -85,6 +85,7 @@ Limitations:
 - The first press after a switch's event entity is first created in HA is ignored, and presses replayed after an HA restart are ignored.
 - Known assumption: it only helps if the bridge reports a lamp that missed the command as still on.
 - A lamp the owner changes after the press is never touched.
+- Hue-app generated off-rules usually also write a CLIP status sensor, so those buttons are treated as ambiguous and need evidence (a light switched off by the press) before anything is sent (safe direction). Only an unconditional off-rule makes a press a certain room-off.
 
 Example: `off_validation.rooms: [Room_Office]`. Enable one room first and watch the log for `Room off` lines.
 
