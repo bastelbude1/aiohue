@@ -784,6 +784,7 @@ class SceneValidator(hass.Hass):
                     delay_multiplier=kwargs.get('delay_multiplier', 1),
                     activation_seq=kwargs.get('activation_seq'),
                     activated_at=kwargs.get('activated_at'),
+                    on_off_only=kwargs.get('on_off_only', False),
                     off_deferred=True)
         return True
 
@@ -1755,13 +1756,17 @@ class SceneValidator(hass.Hass):
 
             # On/off
             expected_on = expected.get('on', {}).get('on', False)
-            if not expected_on:
-                self.call_service("light/turn_off", **service_data)
+            if on_off_only:
+                # Dynamic scene: only fix lights whose on/off state differs, never send
+                # brightness/colour. on:true means ON (brightness 0.0 is not off).
+                is_on = self.get_state(entity_id) == "on"
+                if expected_on != is_on:
+                    self.call_service("light/turn_on" if expected_on else "light/turn_off",
+                                      **service_data)
                 continue
 
-            if on_off_only:
-                # on:true means ON (brightness 0.0 is not off); no brightness/colour
-                self.call_service("light/turn_on", **service_data)
+            if not expected_on:
+                self.call_service("light/turn_off", **service_data)
                 continue
 
             # Brightness
