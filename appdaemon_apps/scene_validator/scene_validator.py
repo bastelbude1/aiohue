@@ -24,10 +24,10 @@ Requirements:
   validation needs inventories with v1 rules from scripts/inventory-hue-bridge.py)
 
 Author: Scene Validator
-Version: 2.4.0 (Room-off validation after Hue switch presses)
+Version: 2.4.1 (Dynamic scenes are validated and corrected on/off only)
 """
 
-__VERSION__ = "2.4.0"
+__VERSION__ = "2.4.1"
 
 import appdaemon.plugins.hass.hassapi as hass
 import json
@@ -1013,12 +1013,17 @@ class SceneValidator(hass.Hass):
                 self.error(f"Scene {scene_entity} not found in inventories")
                 return
 
+            # Dynamic scenes animate colour/brightness: check on/off only
+            on_off_only = self._is_dynamic_scene(scene_entity)
+            if on_off_only:
+                self.log(f"[{scene_entity}] [INFO] Dynamic scene - checking on/off only")
+
             # LEVEL 1: Validate
             self.log(f"[{scene_entity}] LEVEL 1: Validating scene state")
             # Reset failure tracking for new validation
             self.last_validation_failures = []
 
-            if self.validate_scene_state(scene_entity, scene_data):
+            if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
                 self.log(f"[{scene_entity}] [OK] Validation successful")
                 self.record_success()
                 return
@@ -1058,6 +1063,7 @@ class SceneValidator(hass.Hass):
                     scene_entity=scene_entity,
                     scene_data=scene_data,
                     delay_multiplier=delay_multiplier,  # Pass to Level 3
+                    on_off_only=on_off_only,
                     activation_seq=activation_seq,
                     activated_at=activated_at,
                 )
@@ -1092,6 +1098,7 @@ class SceneValidator(hass.Hass):
             level1_delay_multiplier = kwargs.get('delay_multiplier', 1)
             activation_seq = kwargs.get('activation_seq')
             activated_at = kwargs.get('activated_at')
+            on_off_only = bool(kwargs.get('on_off_only', False))
 
             self.log(f"[{scene_entity}] [LEVEL 2] Validating (delay_multiplier={level1_delay_multiplier})", level="INFO")
 
@@ -1123,7 +1130,7 @@ class SceneValidator(hass.Hass):
             # Reset failure tracking for Level 2 validation
             self.last_validation_failures = []
 
-            if self.validate_scene_state(scene_entity, scene_data):
+            if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
                 self.log(f"[{scene_entity}] [OK] Re-trigger successful")
                 self.record_success()
                 return
@@ -1158,6 +1165,7 @@ class SceneValidator(hass.Hass):
                     scene_data=scene_data,
                     activation_seq=activation_seq,
                     activated_at=activated_at,
+                    on_off_only=on_off_only,
                 )
                 self.log(f"[{scene_entity}] [SCHEDULER] Level 3 control scheduled in {level3_delay}s", level="INFO")
             except Exception as e:  # noqa: BLE001 - Broad catch to prevent scheduler failures from crashing app
@@ -1189,6 +1197,7 @@ class SceneValidator(hass.Hass):
             scene_data = kwargs.get('scene_data')
             activation_seq = kwargs.get('activation_seq')
             activated_at = kwargs.get('activated_at')
+            on_off_only = bool(kwargs.get('on_off_only', False))
 
             self.log(f"[{scene_entity}] [LEVEL 3] Controlling lights individually", level="INFO")
 
@@ -1205,7 +1214,7 @@ class SceneValidator(hass.Hass):
                 return
 
             # Control lights individually
-            if not self.control_lights_individually(scene_data):
+            if not self.control_lights_individually(scene_data, on_off_only=on_off_only):
                 self.error(f"[{scene_entity}] [FAIL] Level 3 control commands failed")
                 self.record_failure()
                 return
@@ -1219,7 +1228,7 @@ class SceneValidator(hass.Hass):
                 if self._abort_if_superseded(scene_entity, activation_seq, "Level 3 final validation"):
                     return
                 self.last_validation_failures = []
-                if self.validate_scene_state(scene_entity, scene_data):
+                if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
                     self.log(f"[{scene_entity}] [OK] Level 3 successful - final validation PASSED")
                     self.record_success()
                 else:
@@ -1544,13 +1553,19 @@ class SceneValidator(hass.Hass):
         self.log(f"Scene {entity_id} (Hue ID: {hue_scene_id}) not found in inventories", level="WARNING")
         return None
 
-    def validate_scene_state(self, scene_entity: str, scene_data: Dict[str, Any]) -> bool:
+    def _is_dynamic_scene(self, scene_entity: str) -> bool:
+        """True if HA reports the scene as dynamic (None or missing means static)."""
+        return bool(self.get_state(scene_entity, attribute="is_dynamic"))
+
+    def validate_scene_state(self, scene_entity: str, scene_data: Dict[str, Any],
+                             on_off_only: bool = False) -> bool:
         """
         Validate that all lights match expected scene state.
 
         Args:
             scene_entity: Scene entity_id
             scene_data: Scene data from inventory
+            on_off_only: Dynamic scene - compare only on/off, skip brightness/colour
 
         Returns:
             True if all lights match, False otherwise
@@ -1596,7 +1611,8 @@ class SceneValidator(hass.Hass):
                     continue
 
                 # Compare states
-                if not self.compare_light_states(entity_id, expected, actual_state, scene_entity):
+                if not self.compare_light_states(entity_id, expected, actual_state, scene_entity,
+                                                on_off_only=on_off_only):
                     all_match = False
 
             return all_match
@@ -1609,7 +1625,8 @@ class SceneValidator(hass.Hass):
             return False
 
     def compare_light_states(self, entity_id: str, expected: Dict[str, Any],
-                            actual_state: Dict[str, Any], scene_entity: str = "unknown") -> bool:
+                            actual_state: Dict[str, Any], scene_entity: str = "unknown",
+                            on_off_only: bool = False) -> bool:
         """
         Compare expected and actual light states.
 
@@ -1618,6 +1635,7 @@ class SceneValidator(hass.Hass):
             expected: Expected state from scene
             actual_state: Actual state from HA
             scene_entity: Scene entity_id for logging
+            on_off_only: Dynamic scene - only the on/off state is compared
 
         Returns:
             True if states match within tolerances, False otherwise
@@ -1633,7 +1651,7 @@ class SceneValidator(hass.Hass):
             return False
 
         # If light should be off, no need to check other attributes
-        if not expected_on:
+        if not expected_on or on_off_only:
             return True
 
         # Check brightness
@@ -1693,12 +1711,14 @@ class SceneValidator(hass.Hass):
 
         return True
 
-    def control_lights_individually(self, scene_data: Dict[str, Any]) -> bool:
+    def control_lights_individually(self, scene_data: Dict[str, Any],
+                                    on_off_only: bool = False) -> bool:
         """
         Control each light individually to achieve desired state.
 
         Args:
             scene_data: Scene data from inventory
+            on_off_only: Dynamic scene - only switch on/off, no brightness or colour
 
         Returns:
             True if all lights controlled successfully, False otherwise
@@ -1737,6 +1757,11 @@ class SceneValidator(hass.Hass):
             expected_on = expected.get('on', {}).get('on', False)
             if not expected_on:
                 self.call_service("light/turn_off", **service_data)
+                continue
+
+            if on_off_only:
+                # on:true means ON (brightness 0.0 is not off); no brightness/colour
+                self.call_service("light/turn_on", **service_data)
                 continue
 
             # Brightness
