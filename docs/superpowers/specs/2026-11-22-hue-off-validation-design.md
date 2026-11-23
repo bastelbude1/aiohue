@@ -272,3 +272,19 @@ Not covered by this rule (still corrected as before):
   exists to fix.
 - Expected-on lights that are unavailable or have no state. The rule needs
   every expected-on light to be known and off.
+
+## Amendment 2026-11-23: validate every scene, on/off only for dynamic scenes (2.4.1)
+
+Owner decision: every Hue scene that Hue activates is validated (the production
+`name_patterns` filter is removed). Dynamic scenes (HA scene attribute
+`is_dynamic == true`, 27 of 201 today) animate colour and brightness, so a
+static comparison would always fail. Level 2/3 would then freeze the
+animation.
+
+Rule:
+- For a scene with `is_dynamic == true`, Level 1 and Level 2 compare only the
+  on/off state of each light.
+- Level 3 only switches lights on or off. On means `light.turn_on` with
+  no brightness or colour; off means `light.turn_off`.
+- Static scenes keep the full check.
+- The deliberate-room-off rule and the switch room-off check are unchanged.
