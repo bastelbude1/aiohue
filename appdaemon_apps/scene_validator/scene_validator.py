@@ -24,10 +24,10 @@ Requirements:
   validation needs inventories with v1 rules from scripts/inventory-hue-bridge.py)
 
 Author: Scene Validator
-Version: 2.4.2 (Unreachable lights are skipped in scene validation and never controlled)
+Version: 2.5.0 (Only lamps that missed the scene command are corrected)
 """
 
-__VERSION__ = "2.4.2"
+__VERSION__ = "2.5.0"
 
 import appdaemon.plugins.hass.hassapi as hass
 import json
@@ -893,6 +893,10 @@ class SceneValidator(hass.Hass):
 
     def _handle_scene_activation(self, entity: str, source: str):
         """Debounce, filter and schedule validation for an activated scene entity."""
+        if entity not in self.entity_id_to_hue_id:
+            self.log(f"Skipping {entity} - not a Hue scene (no entity registry mapping)",
+                     level="DEBUG")
+            return
         # Record before debounce/filtering: unvalidated scenes must still supersede
         activation_seq = self._record_activation(entity)
 
@@ -1025,10 +1029,14 @@ class SceneValidator(hass.Hass):
         if not self._circuit_breaker_allows(entity_id):
             return False
 
-        # Check rate limits
-        if not self.check_rate_limits(entity_id):
+        if not self._passes_scene_filters(entity_id, scene_uid):
             return False
 
+        # Rate limits last: a filtered-out scene must not use up the budget
+        return self.check_rate_limits(entity_id)
+
+    def _passes_scene_filters(self, entity_id: str, scene_uid: Optional[str]) -> bool:
+        """exclude_uids, exclude/include labels and name patterns (no side effects)."""
         # Check UID exclusions (the scene's Hue id, from the entity registry)
         scene_uid = scene_uid or self.entity_id_to_hue_id.get(entity_id)
         if scene_uid and scene_uid in self.exclude_uids:
@@ -1833,8 +1841,8 @@ class SceneValidator(hass.Hass):
                 entity_id = self.get_entity_id_from_hue_id(rid)
 
                 if not entity_id:
-                    self.log(f"Could not map Hue ID {rid} to entity_id", level="WARNING")
-                    all_match = False
+                    # No HA entity for this lamp: skipped like an unreachable lamp
+                    self.log(f"[{scene_entity}] [SKIP] {rid} not mapped")
                     continue
 
                 if only_entities is not None and entity_id not in only_entities:
@@ -1992,8 +2000,7 @@ class SceneValidator(hass.Hass):
             entity_id = self.get_entity_id_from_hue_id(rid)
 
             if not entity_id:
-                self.log(f"Could not map Hue ID {rid} to entity_id", level="WARNING")
-                all_success = False
+                self.log(f"[{scene_entity}] [SKIP] {rid} not mapped")
                 continue
 
             if only_entities is not None and entity_id not in only_entities:

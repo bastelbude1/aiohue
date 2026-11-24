@@ -1,6 +1,6 @@
 # Scene Validator for Philips Hue
 
-**Version:** 2.4.2
+**Version:** 2.5.0
 
 AppDaemon automation for validating Philips Hue scene activations in Home Assistant with intelligent 3-level escalation.
 
@@ -97,19 +97,24 @@ Example: `off_validation.rooms: [Room_Office]`. Enable one room first and watch 
 - Wait `transition_delay` seconds after scene activation
 - Validate all light states against scene expectations
 - If successful → Done ✓
-- If failed → Proceed to Level 2
+- If failed → classify the failing lights (2.5.0):
+  - **missed**: no update since the activation (`last_updated` more than 1 s before it). Only these are corrected.
+  - **changed**: updated after the activation (owner or Hue). Left alone with `[SKIP] <light> changed after activation`; a `[WARN] ... inventory may be outdated` line is added if the light reacted within `transition_delay` but differs from the inventory.
+  - Only changed lights fail → `[OK] nothing to correct (only owner/Hue changes)`, nothing recorded
+  - Every failing light missed → Level 2
+  - Missed and changed lights → no Level 2 (it would undo the changes); Level 3 for the missed lights only
 
 ### Level 2: Re-trigger Scene
-- Re-activate the scene
+- Re-activate the scene (only if every failing light missed the command)
 - Wait `validation_delay` × `delay_multiplier` seconds (2x if only color temp failed)
 - Validate again
 - If successful → Done ✓
-- If failed → Proceed to Level 3
+- If failed → re-classify against the original activation; lights updated meanwhile are left alone; the missed ones go to Level 3
 
 ### Level 3: Individual Light Control
-- Control each light individually
+- Control each light that still fails and still missed the command
 - Wait `level3_settle_delay` seconds for lights to settle
-- Perform final validation
+- Perform final validation (of the controlled lights only)
 - Report true success or failure
 
 ## Logging Format
@@ -129,6 +134,7 @@ Set `debug_logging: false` to only show failures (cleaner logs for production).
 
 ## Version History
 
+- **2.5.0**: Only lamps that missed the command are corrected; lamps changed after activation (owner or Hue) are left alone. Restored/re-added entities after an integration reload are ignored. exclude_uids and labels now work. Duplicate inventories are de-duplicated.
 - **2.4.2**: Unreachable lights (unavailable/unknown) are skipped in scene validation and never controlled; a scene is no longer failed or re-triggered because of them.
 - **2.4.1**: Dynamic scenes (is_dynamic) are validated and corrected on/off only, so animations are not frozen. Validating every scene is now safe (remove name_patterns).
 - **2.4.0**: Room-off validation after Hue switch presses (optional, `off_validation`); inventory script writes rooms/zones, buttons and v1 `rules`
