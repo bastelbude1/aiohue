@@ -175,7 +175,8 @@ def test_unresolved_select_supersedes_older_validation(app):  # noqa: F811
 # --- CR3: select options vs inventory ----------------------------------------------
 
 def test_select_options_mismatch_declines(app):  # noqa: F811
-    app.attributes[SELECT] = {"options": ["Standard", "Renamed elsewhere"]}
+    # A second "Standard" appeared since the inventory: the numbering may have shifted
+    app.attributes[SELECT] = {"options": ["Standard", "Standard (2)"]}
 
     activate(app)
 
@@ -196,12 +197,55 @@ def test_select_options_mismatch_supersedes_older_validation(app):  # noqa: F811
     activate(app)
     set_lamp(app, LAMP_A, "off", -3600)
     set_lamp(app, LAMP_B, "off", -3600)
-    app.attributes[SELECT] = {"options": ["Standard", "New"]}
+    app.attributes[SELECT] = {"options": ["Standard", "Standard (2)"]}
     app.on_select_state_changed(SELECT, "state", "Other", "Standard", {})
 
     app.run_scheduled()
 
     assert calls(app, "scene/turn_on") == []
+
+
+def test_select_without_options_attribute_declines(app):  # noqa: F811
+    app.attributes[SELECT] = {}
+
+    activate(app)
+
+    assert scheduled(app, "perform_scene_validation") == []
+    assert has_log(app, f"[WARN] {SELECT} options differ from inventory")
+
+
+def test_extra_live_option_smart_scene_still_validates(app):  # noqa: F811
+    # HA select options also list smart scenes (and scenes added after the inventory)
+    app.attributes[SELECT] = {"options": ["Standard", "Natural light", "New scene"]}
+
+    activate(app)
+
+    assert [kw["scene_entity"] for kw in scheduled(app, "perform_scene_validation")] == [SCENE]
+
+
+def test_renamed_duplicate_shifts_numbering_declines(app):  # noqa: F811
+    # Inventory: Standard + Standard (2); live: only Standard (one was renamed)
+    inventory_scene = app.find_scene_in_inventory(SCENE)
+    twin = {**inventory_scene, "id": "scene-z", "metadata": {"name": "Standard"}}
+    app.inventories[0]["resources"]["scenes"]["items"].append(twin)
+    app.attributes[SELECT] = {"options": ["Standard", "Renamed"]}
+
+    activate(app)
+
+    assert scheduled(app, "perform_scene_validation") == []
+    assert has_log(app, f"[WARN] {SELECT} options differ from inventory - not validated "
+                        "(regenerate inventory)")
+
+
+def test_inventory_option_missing_from_live_declines(app):  # noqa: F811
+    inventory_scene = app.find_scene_in_inventory(SCENE)
+    other = {**inventory_scene, "id": "scene-9", "metadata": {"name": "Relax"}}
+    app.inventories[0]["resources"]["scenes"]["items"].append(other)
+    app.attributes[SELECT] = {"options": ["Standard"]}   # "Relax" gone or renamed
+
+    activate(app)
+
+    assert scheduled(app, "perform_scene_validation") == []
 
 
 # --- CR8: whole-scene replay only when safe for every lamp ----------------------------

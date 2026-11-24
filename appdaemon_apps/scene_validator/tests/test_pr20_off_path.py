@@ -189,3 +189,17 @@ def test_off_followup_with_unreachable_target_records_nothing(app, step):  # noq
     assert turn_offs(app) == sent
     assert has_log(app, "[SKIP] Room off check inconclusive - target lamp(s) unreachable")
     assert not app.callbacks
+
+
+def test_partly_observed_followup_ok_names_counts(app):  # noqa: F811
+    press(app)
+    set_light(app, LAMP_A, "on", -3600)        # both missed (unambiguous job)
+    set_light(app, LAMP_B, "on", -3600)
+    run_next(app, "perform_off_check")
+    set_light(app, LAMP_A, "off", 6)
+    app.full_states[LAMP_B] = {"state": "unavailable", "last_updated": app.now.isoformat()}
+
+    run_next(app, "perform_off_level3")
+
+    assert has_log(app, "[OK] Room off verified after LEVEL 2 "
+                        "(1 of 2 target(s) observed, 1 unreachable)")

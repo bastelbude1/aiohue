@@ -97,6 +97,36 @@ def build_scene_option_map(
     return option_to_scene_id
 
 
+_OPTION_REPEAT_RE = re.compile(r"^(.*) \((\d+)\)$")
+
+
+def _option_base(option: str) -> str:
+    """Option name without HA's duplicate suffix " (N)"."""
+    match = _OPTION_REPEAT_RE.match(option)
+    return match.group(1) if match else option
+
+
+def select_options_match_inventory(live_options: Any, option_map: Dict[str, str],
+                                   chosen: str) -> bool:
+    """True if the select's live options agree with the inventory for `chosen`.
+
+    False (do not validate) if the live options are missing, if an
+    inventory-derived option of the group is missing from them (renamed or
+    deleted scene), or if the live options with the chosen option's base name
+    (without " (N)") differ from the inventory's (duplicate numbering shifted).
+    Extra live options with other base names (smart scenes, scenes added after
+    the inventory) are allowed.
+    """
+    if not isinstance(live_options, list):
+        return False
+    live = set(live_options)
+    if not set(option_map) <= live:
+        return False
+    base = _option_base(chosen)
+    return ({o for o in live if _option_base(o) == base}
+            == {o for o in option_map if _option_base(o) == base})
+
+
 def resolve_scene_entity_from_select(
     select_unique_id: str,
     option: str,
@@ -825,7 +855,7 @@ class SceneValidator(hass.Hass):
             self._claim_unresolved(entity, group_rids)
             return
         options = self.get_state(entity, attribute="options")
-        if not isinstance(options, list) or set(options) != set(option_map):
+        if not select_options_match_inventory(options, option_map, new):
             # Names (and the " (n)" numbering of duplicates) shifted since the
             # inventory was written: the option may point to another scene
             self.log(f"[WARN] {entity} options differ from inventory - not validated "
@@ -1819,8 +1849,9 @@ class SceneValidator(hass.Hass):
             self.error(f"Traceback: {traceback.format_exc()}")
             self.record_failure()
 
-    def _off_recheck(self, kwargs, step: str) -> Optional[Tuple[List[str], bool]]:
-        """(lights of `missed` still on and untouched since the press, owner switched one on).
+    def _off_recheck(self, kwargs, step: str) -> Optional[Tuple[List[str], bool, str]]:
+        """(lights of `missed` still on and untouched since the press, owner switched one on,
+        coverage text "N of M target(s) observed, K unreachable").
 
         None if the check must stop.
         """
@@ -1847,7 +1878,10 @@ class SceneValidator(hass.Hass):
         # A light that is on but not in still_on was changed after the press
         owner_changed = any(v['state'] == "on" and e not in still_on
                             for e, v in lights_now.items())
-        return still_on, owner_changed
+        targets = len(set(kwargs['missed']))
+        coverage = (f"{len(lights_now)} of {targets} target(s) observed, "
+                    f"{targets - len(lights_now)} unreachable")
+        return still_on, owner_changed, coverage
 
     def _off_ended_by_owner(self, room: str, owner_changed: bool) -> bool:
         """Log and return True if the check ends only because the owner changed a light."""
@@ -1862,11 +1896,11 @@ class SceneValidator(hass.Hass):
             recheck = self._off_recheck(kwargs, "Level 3")
             if recheck is None:
                 return
-            still_on, owner_changed = recheck
+            still_on, owner_changed, coverage = recheck
             if not still_on:
                 if self._off_ended_by_owner(room, owner_changed):
                     return
-                self.log(f"[{room}] [OK] Room off verified after LEVEL 2")
+                self.log(f"[{room}] [OK] Room off verified after LEVEL 2 ({coverage})")
                 self.record_success()
                 return
 
@@ -1891,14 +1925,14 @@ class SceneValidator(hass.Hass):
             recheck = self._off_recheck(kwargs, "final check")
             if recheck is None:
                 return
-            still_on, owner_changed = recheck
+            still_on, owner_changed, coverage = recheck
             if not still_on and self._off_ended_by_owner(room, owner_changed):
                 return
             if still_on:
                 self.error(f"[{room}] [FAIL] Room off: still on after LEVEL 3: {', '.join(still_on)}")
                 self.record_failure()
                 return
-            self.log(f"[{room}] [OK] Room off verified after LEVEL 3")
+            self.log(f"[{room}] [OK] Room off verified after LEVEL 3 ({coverage})")
             self.record_success()
 
         except Exception as e:  # noqa: BLE001 - Broad catch to prevent app crash
