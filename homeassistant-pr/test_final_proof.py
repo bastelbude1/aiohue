@@ -10,6 +10,7 @@ This is the definitive end-to-end validation.
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -18,9 +19,9 @@ from aiohue.v2 import HueBridgeV2
 
 # Configuration
 HA_URL = "http://localhost:8123"
-TEST_SCENE_ENTITY = "scene.buro_markus_nachtlicht"
-TEST_SCENE_HUE_ID = "f0309f80-9480-4b12-a0c3-a026790d87bf"  # From entity registry
-BRIDGE_IP = "192.168.188.134"
+TEST_SCENE_ENTITY = os.environ.get("TEST_SCENE_ENTITY", "scene.room_office_standard")
+TEST_SCENE_HUE_ID = os.environ.get("TEST_SCENE_HUE_ID", "<hue_scene_id>")  # From entity registry
+BRIDGE_IP = os.environ.get("BRIDGE_IP", "192.168.1.100")
 
 HA_TOKEN = None
 BRIDGE_USERNAME = None

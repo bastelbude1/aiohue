@@ -804,8 +804,7 @@ class SceneValidator(hass.Hass):
         if old in (None, "unavailable"):
             self.log(f"Skipping {entity} - restored state ({old} -> {new})", level="DEBUG")
             return
-        own_call = self.own_retrigger.get(entity)
-        if own_call is not None and timedelta(0) <= self.get_now() - own_call <= OWN_RETRIGGER_ECHO:
+        if self._is_own_retrigger_echo(entity):
             # Echo of the validator's own Level 2 re-trigger: not a new activation
             self.log(f"Skipping {entity} - echo of own re-trigger", level="DEBUG")
             return
@@ -853,6 +852,11 @@ class SceneValidator(hass.Hass):
                      f"(smart scene or inventory outdated?)", level="WARNING")
             self._claim_unresolved(entity, group_rids)
             return
+        if self._is_own_retrigger_echo(scene_entity):
+            # The bridge reporting the validator's own Level 2 re-trigger
+            self.log(f"Skipping {entity} -> {scene_entity} - echo of own re-trigger",
+                     level="DEBUG")
+            return
         options = self.get_state(entity, attribute="options")
         if not select_options_match_inventory(options, option_map, new):
             # Names (and the " (n)" numbering of duplicates) shifted since the
@@ -872,6 +876,12 @@ class SceneValidator(hass.Hass):
 
         self._handle_scene_activation(scene_entity, source=f"{entity} (bridge-reported)",
                                       report="select", extra_rids=group_rids)
+
+    def _is_own_retrigger_echo(self, scene_entity: str) -> bool:
+        """True within OWN_RETRIGGER_ECHO after the validator re-triggered this scene."""
+        own_call = self.own_retrigger.get(scene_entity)
+        return (own_call is not None
+                and timedelta(0) <= self.get_now() - own_call <= OWN_RETRIGGER_ECHO)
 
     def _claim_unresolved(self, select_entity: str, group_rids: List[str]):
         """An unattributable scene step on the group: stamp it for room-off
@@ -916,6 +926,15 @@ class SceneValidator(hass.Hass):
                 # A later re-activation of previous_owner is a real user choice
                 self.interrupted_scenes.add(previous_owner)
             self.light_last_activation[rid] = (self._activation_seq, owner)
+        if not owner.startswith("off:"):
+            # Once another scene took over any of its lights, a later report of a
+            # scene is a re-activation, never a duplicate of its earlier one. A
+            # room-off claim does not end the pairing: the bridge's late report of
+            # an activation made before the press must not count as a scene after it.
+            claimed = set(light_rids)
+            for other in [e for e in self.last_report if e != owner]:
+                if claimed & set(self._scene_light_rids(other)):
+                    del self.last_report[other]
         return self._activation_seq
 
     def _record_activation(self, scene_entity: str) -> int:

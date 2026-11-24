@@ -316,3 +316,56 @@ def test_scene_name_matching_option_base_validates(app):  # noqa: F811
     activate(app)
 
     assert [kw["scene_entity"] for kw in scheduled(app, "perform_scene_validation")] == [SCENE]
+
+
+# --- re-review: coalescing and select echo -------------------------------------------
+
+def test_a_b_a_within_two_seconds_reactivates_a(two_scene_app):  # noqa: F811
+    app = two_scene_app
+    app.name_patterns = [".*"]                     # validate both scenes
+    t0 = app.now
+    app.on_scene_state_changed(STANDARD, "state", OLD_TS, t0.isoformat(), {})   # HA: A
+    app.now = t0 + timedelta(seconds=0.3)
+    app.on_select_state_changed(TWO_SCENE_SELECT, "state", "unknown",
+                                "Arbeiten Standard", {})                         # A's report
+    app.now = t0 + timedelta(seconds=0.8)
+    app.on_select_state_changed(TWO_SCENE_SELECT, "state", "Arbeiten Standard",
+                                "Arbeiten Abends", {})                           # B
+    app.now = t0 + timedelta(seconds=1.5)
+    app.on_select_state_changed(TWO_SCENE_SELECT, "state", "Arbeiten Abends",
+                                "Arbeiten Standard", {})                         # A again
+
+    assert app.light_last_activation["light-1"][1] == STANDARD
+    assert [kw["scene_entity"] for kw in scheduled(app, "perform_scene_validation")] \
+        == [STANDARD, "scene.buro_arbeiten_abends", STANDARD]
+    app.run_scheduled()
+    assert has_log(app, "[scene.buro_arbeiten_abends] [SKIP] Validation aborted - superseded "
+                        f"by newer activation of {STANDARD}")
+
+
+def test_own_retrigger_select_echo_is_ignored(app):  # noqa: F811
+    activate(app)
+    set_lamp(app, LAMP_A, "off", -3600)
+    set_lamp(app, LAMP_B, "off", -3600)
+    run_next(app, "perform_scene_validation")      # Level 2 re-trigger
+    assert calls(app, "scene/turn_on") == [{"entity_id": SCENE}]
+    app.interrupted_scenes.add(SCENE)              # e.g. an overlapping zone scene meanwhile
+    owners = dict(app.light_last_activation)
+    stamped = dict(app.light_activation_at)
+
+    app.now += timedelta(seconds=1)
+    app.on_select_state_changed(SELECT, "state", "Other", "Standard", {})  # echo of re-trigger
+
+    assert len(scheduled(app, "perform_scene_validation")) == 1
+    assert app.light_last_activation == owners
+    assert app.light_activation_at == stamped
+    assert any(level == "DEBUG" and "own re-trigger" in m and SELECT in m
+               for level, m in app.logs)
+
+
+def test_room_off_claim_keeps_report_pairing(app):  # noqa: F811
+    app.on_scene_state_changed(SCENE, "state", OLD_TS, app.now.isoformat(), {})
+    app._claim_lights("off:Room_Office", ["a-light-a", "a-light-b"])
+    assert SCENE in app.last_report
+    app._claim_lights(f"unresolved:{SELECT}", ["a-light-a"])
+    assert SCENE not in app.last_report

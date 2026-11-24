@@ -602,7 +602,7 @@ self.transition_delay = int(self.args.get('transition_delay', 5))
 
 ```bash
 # SSH to Home Assistant
-ssh -i /home/baste/HA/homeassistant_ssh_key hassio@192.168.188.42
+ssh -i path/to/homeassistant_ssh_key hassio@192.168.1.100
 
 # Edit apps.yaml
 sudo nano /homeassistant/appdaemon/apps/apps.yaml

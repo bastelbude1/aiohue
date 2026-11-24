@@ -21,13 +21,13 @@ This toolkit provides a comprehensive solution for managing Philips Hue bridges 
 ### 1. Hue Bridge Management (Direct API)
 - **Purpose**: Interact directly with Hue bridges using aiohue library
 - **API**: Philips Hue API v2
-- **Environment**: Local development machine (BastelBude)
+- **Environment**: Local development machine (your-host)
 - **Use Cases**: Bridge discovery, registration, inventory capture, automation analysis
 
 ### 2. Home Assistant Integration
 - **Purpose**: Integrate Hue bridges with Home Assistant ecosystem
 - **Components**: Scene validation, inventory export, automation monitoring
-- **Environment**: Home Assistant server (192.168.188.42)
+- **Environment**: Home Assistant server (192.168.1.100)
 - **Use Cases**: Scene validation, entity mapping, automation reliability
 
 ### System Diagram
@@ -35,7 +35,7 @@ This toolkit provides a comprehensive solution for managing Philips Hue bridges 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Local Development Machine                     │
-│                         (BastelBude)                             │
+│                         (your-host)                              │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────┐    │
 │  │           Hue Bridge Management Scripts                 │    │
@@ -74,7 +74,7 @@ This toolkit provides a comprehensive solution for managing Philips Hue bridges 
 ┌─────────────────────────────┼────────────────────────────────────┐
 │                             ↓                                     │
 │                 Home Assistant Server                            │
-│                    (192.168.188.42)                              │
+│                    (192.168.1.100)                               │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────┐    │
 │  │              Inventory Data Storage                     │    │
@@ -441,19 +441,19 @@ aiohue/
 **Hue Inventories:**
 ```text
 bridges/inventory/{BridgeName}-{BridgeID}.json
-Example: Bridge_EG-001788b3e355.json
+Example: Bridge_EG-abc123def456.json
 ```
 
 **Hue Automations:**
 ```text
 bridges/automations/{BridgeName}-{BridgeID}-automations.json
-Example: Bridge_EG-001788b3e355-automations.json
+Example: Bridge_EG-abc123def456-automations.json
 ```
 
 **HA Inventories:**
 ```text
 bridges/ha_inventory/ha_{BridgeName}-{BridgeID}.json
-Example: ha_Bridge_EG-001788b3e355.json
+Example: ha_Bridge_EG-abc123def456.json
 ```
 
 **Filename Sanitization:**
