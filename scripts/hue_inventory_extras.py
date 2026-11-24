@@ -88,11 +88,15 @@ def _v1_error_text(data):
     return None
 
 
+class _HTTPStatusError(RuntimeError):
+    """``HTTP <status>``; carries no URL or username, so it is re-raised unchanged."""
+
+
 async def _get_v1(bridge, path, timeout):
     async with bridge.create_request("get", path, timeout=timeout) as resp:
         status = getattr(resp, "status", None)
         if isinstance(status, int) and status >= 400:
-            raise RuntimeError(f"HTTP {status}")
+            raise _HTTPStatusError(f"HTTP {status}")
         data = await resp.json()
     err = _v1_error_text(data)
     if err is not None:
@@ -113,7 +117,7 @@ async def fetch_v1(bridge, username):
         sensors = await _get_v1(bridge, f"api/{username}/sensors", timeout)
         return {"rules": sanitize_v1_rules(rules),
                 "sensors": serialize_v1_sensors(sensors)}
-    except ValueError:
+    except (ValueError, _HTTPStatusError):
         raise
     except Exception as e:
         status = getattr(e, "status", None)

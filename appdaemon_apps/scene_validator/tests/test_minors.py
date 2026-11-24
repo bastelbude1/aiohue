@@ -2,8 +2,6 @@
 
 from datetime import timedelta
 
-# test_off_validation_app first: it imports scene_validator before test_off_jobs
-# puts scripts/ (which has another scene_validator.py) on sys.path
 from test_off_validation_app import LAMP_A, SCENE, SELECT, build_app
 from test_off_jobs import BTN_ENTITY  # noqa: I001
 from test_scene_filters import LABELLED, PLAIN, activate as activate_scene, make_app  # noqa: F401

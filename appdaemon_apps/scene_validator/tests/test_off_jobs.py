@@ -4,7 +4,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace as NS
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+# Appended, not inserted: scripts/ has another scene_validator.py, and the app
+# module (put first on sys.path by conftest.py) must win
+sys.path.append(str(Path(__file__).resolve().parents[3] / "scripts"))
 from hue_inventory_extras import serialize_group  # noqa: E402
 
 from scene_validator import build_off_jobs
@@ -237,3 +239,10 @@ def test_ddx_rule_is_ambiguous():
                           "value": "PT00:00:02"}
     jobs = build_off_jobs([make_inventory({"1": r})], registry())
     assert jobs[BTN_ENTITY][0]["ambiguous"] is True
+
+
+def test_app_module_is_not_shadowed_by_scripts():
+    # 2.5.1 (CR16): scripts/ has another scene_validator.py; the app must win
+    import scene_validator
+    assert Path(scene_validator.__file__).as_posix().endswith(
+        "appdaemon_apps/scene_validator/scene_validator.py")

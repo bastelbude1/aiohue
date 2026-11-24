@@ -149,3 +149,21 @@ def test_fetch_v1_exception_text_has_no_username():
         asyncio.run(extras.fetch_v1(b, USER))
     assert USER not in str(ei.value) and "192.168" not in str(ei.value)
     assert ei.value.__cause__ is None and ei.value.__suppress_context__
+
+
+class StatusBridge:
+    def __init__(self, status):
+        self.status = status
+
+    @asynccontextmanager
+    async def create_request(self, method, path, **kwargs):
+        async def _json():
+            return {}
+        yield NS(status=self.status, json=_json)
+
+
+def test_fetch_v1_http_error_keeps_status():
+    with pytest.raises(RuntimeError) as ei:
+        asyncio.run(extras.fetch_v1(StatusBridge(403), USER))
+    assert str(ei.value) == "HTTP 403"
+    assert USER not in str(ei.value)

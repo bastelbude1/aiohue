@@ -4,7 +4,7 @@ AppDaemon Scene Validator for Philips Hue Integration
 Validates Hue scene activations in Home Assistant with 3-level escalation
 and intelligent fallback mechanisms. Detects scene activations from ANY
 source (HA UI, Hue app, physical switches, Hue automations) via the Hue
-active-scene select entities (HA 2026.x+) plus scene.* state changes.
+active-scene select entities (HA 2026.10+) plus scene.* state changes.
 
 Features:
 - Scene detection from HA (scene.*) and from outside HA (Hue select.*)
@@ -24,10 +24,10 @@ Requirements:
   validation needs inventories with v1 rules from scripts/inventory-hue-bridge.py)
 
 Author: Scene Validator
-Version: 2.5.0 (Only lamps that missed the scene command are corrected)
+Version: 2.5.1 (PR #20 review fixes: event ordering, attribution, evidence windows)
 """
 
-__VERSION__ = "2.5.0"
+__VERSION__ = "2.5.1"
 
 import appdaemon.plugins.hass.hassapi as hass
 import json

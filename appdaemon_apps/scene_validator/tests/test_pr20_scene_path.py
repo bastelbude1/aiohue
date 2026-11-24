@@ -9,7 +9,7 @@ from test_missed_only import activate, calls, has_log, light_targets, set_lamp
 from test_restored_entities import app as restored_app, fresh, validations  # noqa: F401
 from test_select_listener import SCENE as LISTENER_SCENE
 from test_superseded import (  # noqa: F401
-    ABENDS, SELECT as TWO_SCENE_SELECT, STANDARD, app as two_scene_app,
+    SELECT as TWO_SCENE_SELECT, STANDARD, app as two_scene_app,
 )
 
 OLD_TS = "2026-11-22T10:00:00+00:00"
