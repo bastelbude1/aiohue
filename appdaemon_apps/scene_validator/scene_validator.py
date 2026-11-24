@@ -276,14 +276,17 @@ def all_expected_on_lights_switched_off(
     """True if every light the scene expects ON was switched off after the activation.
 
     Deliberate room off (e.g. Hue app) without a switch press. Requires a
-    non-empty expected_on, every entity known, off, and last_updated >=
-    activated_at (a light that is off but unchanged missed the scene command).
+    non-empty expected_on and at least one reachable light. Unreachable lights
+    (absent from lights_now, or state unavailable/unknown) are ignored. Every
+    reachable one must be off with last_updated >= activated_at (a light that
+    is off but unchanged missed the scene command).
     """
-    if not expected_on:
+    reachable = [lights_now[e] for e in expected_on
+                 if e in lights_now and lights_now[e]["state"] not in ("unavailable", "unknown")]
+    if not reachable:
         return False
-    for entity in expected_on:
-        light = lights_now.get(entity)
-        if not light or light["state"] != "off" or light["last_updated"] < activated_at:
+    for light in reachable:
+        if light["state"] != "off" or light["last_updated"] < activated_at:
             return False
     return True
 
@@ -855,8 +858,10 @@ class SceneValidator(hass.Hass):
         for entity in expected_on:
             state = self.get_state(entity, attribute="all") or {}
             last_updated = self._parse_ts(state.get('last_updated'))
-            if state.get('state') in (None, "unavailable", "unknown") or last_updated is None:
-                continue
+            if state.get('state') in (None, "unavailable", "unknown"):
+                continue  # unreachable: ignored by the rule
+            if last_updated is None:  # reachable but unprovable: blocks the rule
+                last_updated = datetime.min.replace(tzinfo=timezone.utc)
             lights_now[entity] = {"state": state['state'], "last_updated": last_updated}
         if not all_expected_on_lights_switched_off(expected_on, lights_now, activated_at):
             return False
@@ -1220,7 +1225,8 @@ class SceneValidator(hass.Hass):
                 return
 
             # Control lights individually
-            if not self.control_lights_individually(scene_data, on_off_only=on_off_only):
+            if not self.control_lights_individually(scene_data, on_off_only=on_off_only,
+                                              scene_entity=scene_entity):
                 self.error(f"[{scene_entity}] [FAIL] Level 3 control commands failed")
                 self.record_failure()
                 return
@@ -1742,7 +1748,8 @@ class SceneValidator(hass.Hass):
         return True
 
     def control_lights_individually(self, scene_data: Dict[str, Any],
-                                    on_off_only: bool = False) -> bool:
+                                    on_off_only: bool = False,
+                                    scene_entity: str = "control") -> bool:
         """
         Control each light individually to achieve desired state.
 
@@ -1780,7 +1787,7 @@ class SceneValidator(hass.Hass):
                 continue
 
             if self._state_unreachable(self.get_state(entity_id)):
-                self._log_skip_unreachable("control", entity_id)
+                self._log_skip_unreachable(scene_entity, entity_id)
                 continue
 
             # Build service call parameters

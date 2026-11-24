@@ -32,10 +32,23 @@ def test_helper_false_when_off_light_unchanged_since_activation():
         [A, B], {A: light("off", 1), B: light("off", -60)}, T0) is False
 
 
-def test_helper_false_when_light_missing_or_unavailable():
-    assert all_expected_on_lights_switched_off([A, B], {A: light("off", 1)}, T0) is False
+def test_helper_ignores_unreachable_lights_when_reachable_one_switched_off():
     assert all_expected_on_lights_switched_off(
-        [A, B], {A: light("off", 1), B: light("unavailable", 1)}, T0) is False
+        [A, B], {A: light("off", 1), B: light("unavailable", 1)}, T0) is True
+    assert all_expected_on_lights_switched_off([A, B], {A: light("off", 1)}, T0) is True
+    assert all_expected_on_lights_switched_off(
+        [A, B], {A: light("off", 1), B: light("unknown", 1)}, T0) is True
+
+
+def test_helper_false_when_reachable_light_still_on_despite_unreachable_one():
+    assert all_expected_on_lights_switched_off(
+        [A, B], {A: light("on", 1), B: light("unavailable", 1)}, T0) is False
+
+
+def test_all_expected_on_unreachable_is_not_deliberate():
+    assert all_expected_on_lights_switched_off([A, B], {}, T0) is False
+    assert all_expected_on_lights_switched_off(
+        [A, B], {A: light("unavailable", 1), B: light("unknown", 1)}, T0) is False
 
 
 def test_helper_false_when_no_expected_on_lights():
@@ -153,3 +166,14 @@ def test_deferred_scene_step_keeps_activated_at(ambiguous_app):
     deferred = [kw for name, _d, kw in app.scheduled if name == "perform_scene_validation"][-1]
     assert deferred.get("off_deferred") is True
     assert deferred["activated_at"] == activated
+
+
+def test_app_room_off_with_unreachable_lamp_is_deliberate(app):
+    activate(app)
+    set_light(app, LAMP_A, "off", 1)
+    set_light(app, LAMP_B, "unavailable", 1)
+
+    app.run_scheduled()
+
+    assert scene_turn_ons(app) == []
+    assert skip_logs(app)

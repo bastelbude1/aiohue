@@ -132,3 +132,10 @@ def test_real_failure_still_escalates_with_unavailable_present(app):
     run_next(app, "perform_scene_validation")
 
     assert calls(app, "scene/turn_on") == [{"entity_id": SCENE}]
+
+
+def test_control_skip_log_uses_scene_entity(app):
+    set_off(app, LAMP_A)
+    set_unreachable(app, LAMP_B)
+    app.control_lights_individually(app.find_scene_in_inventory(SCENE), scene_entity=SCENE)
+    assert has_log(app, f"[{SCENE}] [SKIP] {LAMP_B} unavailable - not validated")
