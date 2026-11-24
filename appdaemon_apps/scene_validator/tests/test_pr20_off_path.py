@@ -82,6 +82,9 @@ def test_scene_step_is_deferred_at_most_three_times(ambiguous_app):  # noqa: F81
     deferred = [m for _l, m in app.logs if "Validation deferred - pending room-off" in m]
     assert len(deferred) == 3
     assert len(starts(app)) == 1
+    assert has_log(app, f"[{SCENE}] [SKIP] Validation deferral limit reached - proceeding "
+                        "while room-off check still pending")
+    assert not has_log(app, "overdue")
 
 
 def test_deferral_stops_10s_after_off_check_due(ambiguous_app):  # noqa: F811
@@ -97,6 +100,7 @@ def test_deferral_stops_10s_after_off_check_due(ambiguous_app):  # noqa: F811
     run_next(app, "perform_scene_validation")
 
     assert len(starts(app)) == 1
+    assert has_log(app, "overdue")
 
 
 def test_off_check_evaluation_clears_pending(ambiguous_app):  # noqa: F811
@@ -203,3 +207,42 @@ def test_partly_observed_followup_ok_names_counts(app):  # noqa: F811
 
     assert has_log(app, "[OK] Room off verified after LEVEL 2 "
                         "(1 of 2 target(s) observed, 1 unreachable)")
+
+
+# --- review round 2: late or duplicate reports do not re-stamp -------------------------
+
+OLD_TS = "2026-11-22T10:00:00+00:00"
+
+
+def test_duplicate_select_report_after_definite_press_does_not_veto(app):  # noqa: F811
+    t0 = app.now
+    app.on_scene_state_changed(SCENE, "state", OLD_TS, t0.isoformat(), {})  # HA-initiated
+    app.now = t0 + timedelta(seconds=0.3)
+    t_press = press(app)                           # definite press 0.3 s after the scene
+    app.now = t0 + timedelta(seconds=0.6)
+    activate(app)                                  # late bridge report of the same activation
+    set_light(app, LAMP_A, "off", 0.3 - 0.6)
+    set_light(app, LAMP_B, "on", -3600)
+    app.now = t_press
+
+    run_next(app, "perform_off_check")
+
+    assert turn_offs(app) == [LAMP_B]
+    assert len([n for n, _d, _kw in app.scheduled if n == "perform_scene_validation"]) == 1
+
+
+def test_scene_path_stamps_scene_timestamp(app):  # noqa: F811
+    t_activation = app.now
+    app.now += timedelta(seconds=1.5)              # callback late
+    app.on_scene_state_changed(SCENE, "state", OLD_TS, t_activation.isoformat(), {})
+
+    assert app.light_activation_at["a-light-a"] == t_activation
+
+
+def test_debounced_duplicate_does_not_restamp(app):  # noqa: F811
+    activate(app)
+    stamped = dict(app.light_activation_at)
+    app.now += timedelta(seconds=10)
+    app.on_select_state_changed(SELECT, "state", "Other", "Standard", {})  # debounced
+
+    assert app.light_activation_at == stamped

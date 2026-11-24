@@ -90,6 +90,9 @@ Limitations:
 - A scene activated before the press does not block a certain (unconditional) room-off; for ambiguous buttons a scene up to 1 s before the press still marks the press as a scene step.
 - Scene validation: if all lights a scene switched on are switched off within the check window (e.g. Hue app room off), this is treated as a deliberate room off and the scene is not re-triggered. (The switch-press room-off check still does not cover the Hue app.)
 - If a room is switched off just before a scene is activated and every lamp also misses the scene command, the scene may not be corrected (very unlikely).
+- A real HA activation of the same scene within 3 s of the validator's own Level 2 re-trigger is treated as the re-trigger's echo and not validated again (harmless: same scene, same outcome).
+- Select-reported activations whose scene was renamed and whose old name was reused by another scene are declined: `[WARN] <select> option '<name>' resolves to scene named '<other>' - not validated (regenerate inventory)` (uses the scene's `name` attribute; skipped if it is missing).
+- The bridge's select report of an HA-initiated activation (within 2 s of the scene.* timestamp) is the same activation, not a new one: it does not re-stamp room-off evidence. A real re-activation of the same scene from the Hue app within those 2 s is treated the same way.
 - Dynamic scenes are never re-triggered (2.5.0): a re-trigger could undo owner dimming that the on/off check cannot see; lamps that missed the command get Level 3 (on/off only).
 
 Example: `off_validation.rooms: [Room_Office]`. Enable one room first and watch the log for `Room off` lines.
@@ -126,12 +129,12 @@ Example: `off_validation.rooms: [Room_Office]`. Enable one room first and watch 
 All logs follow a consistent `[scene] [light] [check] : info` format:
 
 ```text
-[scene.buro_markus_nachtlicht] LEVEL 1: Validating scene state
-[scene.buro_markus_nachtlicht] [light.ecklampe_markus_buro] [BRIGHTNESS] OK: exp 0.0%, got 0.0%, diff 0.0% < tol 5%
-[scene.buro_markus_nachtlicht] [light.ecklampe_markus_buro] [COLOR_TEMP] FAIL: exp 499, got 346, diff 153 > tol 50
-[scene.buro_markus_nachtlicht] [ADAPTIVE] Only color_temp failed - using 2x delay for Level 2 (4s)
-[scene.buro_markus_nachtlicht] [FAIL] Validation failed (failures: color_temp)
-[scene.buro_markus_nachtlicht] LEVEL 2: Re-triggering scene
+[scene.room_office_standard] LEVEL 1: Validating scene state
+[scene.room_office_standard] [light.lamp_a] [BRIGHTNESS] OK: exp 0.0%, got 0.0%, diff 0.0% < tol 5%
+[scene.room_office_standard] [light.lamp_a] [COLOR_TEMP] FAIL: exp 499, got 346, diff 153 > tol 50
+[scene.room_office_standard] [ADAPTIVE] Only color_temp failed - using 2x delay for Level 2 (4s)
+[scene.room_office_standard] [FAIL] Validation failed (failures: color_temp)
+[scene.room_office_standard] LEVEL 2: Re-triggering scene
 ```
 
 Set `debug_logging: false` to only show failures (cleaner logs for production).

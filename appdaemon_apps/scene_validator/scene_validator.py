@@ -448,6 +448,7 @@ class SceneValidator(hass.Hass):
         self.light_last_activation = {}  # Hue light rid -> (activation seq, scene_entity)
         self.latest_scene_seq = {}  # scene_entity -> seq of its newest (non-duplicate) activation
         self.own_retrigger = {}  # scene_entity -> time of the validator's own Level 2 scene/turn_on
+        self.last_report = {}  # scene_entity -> ("scene"|"select", activation time) of last report
         self.interrupted_scenes = set()  # scenes whose lights another scene took over
         self.circuit_breaker_state = 'CLOSED'
         self.circuit_breaker_failures = 0
@@ -838,11 +839,9 @@ class SceneValidator(hass.Hass):
         group_rids: List[str] = []
         if select_unique_id:
             # Any active-scene change is a scene step for room-off evidence, even if
-            # the option cannot be resolved to a scene entity below
-            now = self.get_now()
+            # the option cannot be resolved below (stamped there, or in
+            # _handle_scene_activation unless it is a duplicate report)
             group_rids = self._group_light_rids(select_unique_id.removesuffix(SCENE_SELECT_SUFFIX))
-            for rid in group_rids:
-                self.light_activation_at[rid] = now
         scene_entity = None
         option_map: Dict[str, str] = {}
         if select_unique_id:
@@ -862,11 +861,24 @@ class SceneValidator(hass.Hass):
                      f"(regenerate inventory)", level="WARNING")
             self._claim_unresolved(entity, group_rids)
             return
+        scene_name = self.get_state(scene_entity, attribute="name")
+        if isinstance(scene_name, str) and scene_name != _option_base(new):
+            # Scene renamed and its old name reused by another scene: the option
+            # check passes, but the option now means the other scene
+            self.log(f"[WARN] {entity} option '{new}' resolves to scene named "
+                     f"'{scene_name}' - not validated (regenerate inventory)", level="WARNING")
+            self._claim_unresolved(entity, group_rids)
+            return
 
-        self._handle_scene_activation(scene_entity, source=f"{entity} (bridge-reported)")
+        self._handle_scene_activation(scene_entity, source=f"{entity} (bridge-reported)",
+                                      report="select", extra_rids=group_rids)
 
     def _claim_unresolved(self, select_entity: str, group_rids: List[str]):
-        """An unattributable scene on the group: older chains on its lights abort."""
+        """An unattributable scene step on the group: stamp it for room-off
+        evidence, and older chains on its lights abort."""
+        now = self.get_now()
+        for rid in group_rids:
+            self.light_activation_at[rid] = now
         if group_rids:
             self._claim_lights(f"unresolved:{select_entity}", group_rids)
 
@@ -908,11 +920,12 @@ class SceneValidator(hass.Hass):
 
     def _record_activation(self, scene_entity: str) -> int:
         """Mark the scene's lights as owned by this activation; return its sequence number."""
-        light_rids = self._scene_light_rids(scene_entity)
-        now = self.get_now()
-        for rid in light_rids:
-            self.light_activation_at[rid] = now
-        return self._claim_lights(scene_entity, light_rids)
+        return self._claim_lights(scene_entity, self._scene_light_rids(scene_entity))
+
+    def _stamp_activation(self, scene_entity: str, extra_rids: List[str], at: datetime):
+        """Room-off evidence: a scene step touched these lights at `at`."""
+        for rid in list(self._scene_light_rids(scene_entity)) + list(extra_rids):
+            self.light_activation_at[rid] = at
 
     def _superseded_by(self, scene_entity: str, activation_seq: Optional[int]) -> Optional[str]:
         """Return the newer scene that took over any of this scene's lights, if any."""
@@ -975,9 +988,13 @@ class SceneValidator(hass.Hass):
             return False
         room, wait, due = pending
         count = int(kwargs.get('off_defer_count', 1 if kwargs.get('off_deferred') else 0))
-        if count >= OFF_DEFER_MAX or self.get_now() >= due + OFF_DEFER_GRACE:
+        if self.get_now() >= due + OFF_DEFER_GRACE:
             self.log(f"[{scene_entity}] [WARN] {step} - room-off check for {room} overdue, "
                      f"proceeding", level="WARNING")
+            return False
+        if count >= OFF_DEFER_MAX:
+            self.log(f"[{scene_entity}] [SKIP] {step} deferral limit reached - proceeding "
+                     f"while room-off check still pending")
             return False
         self.log(f"[{scene_entity}] [SKIP] {step} deferred - pending room-off check for {room}")
         self.run_in(callback, wait,
@@ -993,11 +1010,14 @@ class SceneValidator(hass.Hass):
         return True
 
     def _handle_scene_activation(self, entity: str, source: str,
-                                 activated_at: Optional[datetime] = None):
+                                 activated_at: Optional[datetime] = None,
+                                 report: str = "scene", extra_rids: Optional[List[str]] = None):
         """Debounce, filter and schedule validation for an activated scene entity.
 
         activated_at: the scene's own activation timestamp (scene.* path);
         None means get_now() (select path: the select carries no time).
+        report: "scene" or "select" (which signal reported it); extra_rids: more
+        lights the step touched (the select's group) for room-off evidence.
         """
         if entity not in self.entity_id_to_hue_id:
             if self.is_hue_scene(entity):
@@ -1010,6 +1030,17 @@ class SceneValidator(hass.Hass):
                 self.log(f"Skipping {entity} - not a Hue scene (no entity registry mapping)",
                          level="DEBUG")
             return
+        at = activated_at if activated_at is not None else self.get_now()
+        previous = self.last_report.get(entity)
+        if (previous is not None and previous[0] != report
+                and abs(at - previous[1]) <= REACTION_WINDOW):
+            # The other signal's report of the same activation (HA-initiated:
+            # scene.* then the bridge's select). It must not re-stamp, re-claim
+            # or count as a new activation, even after an intervening room off.
+            self.log(f"Skipping {entity} - duplicate report of the same activation "
+                     f"({source})", level="DEBUG")
+            return
+        self.last_report[entity] = (report, at)
         # Record before debounce/filtering: unvalidated scenes must still supersede
         activation_seq = self._record_activation(entity)
 
@@ -1039,6 +1070,7 @@ class SceneValidator(hass.Hass):
         # A real new activation (not a duplicate report): older chains of this
         # scene abort, even if this one is filtered out below
         self.latest_scene_seq[entity] = activation_seq
+        self._stamp_activation(entity, extra_rids or [], at)
         self.log(f"Scene activated: {entity} (source: {source})")
 
         # Check if scene should be validated (filtering logic)
@@ -1053,7 +1085,7 @@ class SceneValidator(hass.Hass):
         # Schedule validation after transition delay
         self.run_in(self.perform_scene_validation, self.transition_delay,
                     scene_entity=entity, activation_seq=activation_seq,
-                    activated_at=activated_at if activated_at is not None else self.get_now())
+                    activated_at=at)
 
     def _unusable_stop(self, scene_entity: str, check: SceneCheck,
                        on_off_only: bool = False) -> bool:
@@ -1953,14 +1985,14 @@ class SceneValidator(hass.Hass):
         name (e.g., 28 scenes named "Nachtlicht" across different rooms).
 
         Args:
-            entity_id: Scene entity_id (e.g., scene.buro_markus_nachtlicht)
+            entity_id: Scene entity_id (e.g., scene.room_office_nightlight)
 
         Returns:
             Scene data dict or None if not found
         """
         # Get Hue scene ID from entity registry (unique_id = Hue scene ID)
         # The entity registry provides the direct 1:1 mapping:
-        # scene.buro_markus_nachtlicht → f0309f80-9480-4b12-a0c3-a026790d87bf
+        # scene.room_office_nightlight -> abc123de-0000-0000-0000-000000000000
         hue_scene_id = None
         for unique_id, mapped_entity_id in self.hue_id_to_entity_id.items():
             if mapped_entity_id == entity_id:

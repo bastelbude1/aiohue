@@ -292,3 +292,27 @@ def test_scene_light_rids_uses_reverse_map(app):  # noqa: F811
     app.hue_id_to_entity_id = {}
 
     assert app._scene_light_rids(SCENE) == ["a-light-a", "a-light-b"]
+
+
+# --- review round 2: renamed scene whose name was reused -------------------------------
+
+def test_renamed_scene_with_reused_name_declines(app):  # noqa: F811
+    # Inventory: "Standard" = scene-1. Owner renamed scene-1 to "Standard alt" and
+    # created a new scene "Standard": the option check passes, the name does not
+    app.attributes[SELECT] = {"options": ["Standard", "Standard alt"]}
+    app.attributes[SCENE] = {"name": "Standard alt"}
+    activate(app)
+    set_lamp(app, LAMP_A, "off", -3600)
+
+    assert scheduled(app, "perform_scene_validation") == []
+    assert any(level == "WARNING" and m == f"[WARN] {SELECT} option 'Standard' resolves to "
+               "scene named 'Standard alt' - not validated (regenerate inventory)"
+               for level, m in app.logs)
+    assert app.light_last_activation["a-light-a"][1] == f"unresolved:{SELECT}"
+
+
+def test_scene_name_matching_option_base_validates(app):  # noqa: F811
+    app.attributes[SCENE] = {"name": "Standard"}
+    activate(app)
+
+    assert [kw["scene_entity"] for kw in scheduled(app, "perform_scene_validation")] == [SCENE]
