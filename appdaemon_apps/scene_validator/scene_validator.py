@@ -292,6 +292,7 @@ def all_expected_on_lights_switched_off(
 
 
 MISSED_TOLERANCE = timedelta(seconds=1)
+REACTION_WINDOW = timedelta(seconds=2)  # update this soon after activation = reaction to it
 
 
 def classify_scene_failures(
@@ -323,13 +324,15 @@ def classify_scene_failures(
 class SceneCheck:
     """Result of one scene validation run.
 
-    usable: False when the scene cannot be validated (no or legacy actions).
+    usable: False when the scene cannot be validated (no actions, legacy
+        string actions, or an error); legacy: True only for legacy string actions.
     failing: lamps that differ from the scene, in scene order.
     kinds: failure kind per failing lamp ('on_off', 'brightness', 'color', 'color_temp').
     checked: lamps actually compared (unreachable and unmapped lamps are skipped).
     """
     passed: bool
     usable: bool = True
+    legacy: bool = False
     failing: List[str] = field(default_factory=list)
     kinds: Dict[str, str] = field(default_factory=dict)
     checked: int = 0
@@ -386,6 +389,7 @@ class SceneValidator(hass.Hass):
         self.hue_id_to_entity_id = {}  # Hue unique_id -> HA entity_id mapping cache
         self.entity_id_to_hue_id = {}  # reverse of hue_id_to_entity_id
         self.entity_labels = {}  # HA entity_id -> entity registry label ids
+        self.unmapped_scenes_reported = set()  # Hue scenes missing from the mapping (logged once)
         self.select_entity_to_unique_id = {}  # select.*_szene -> "<group_id>_scene_select"
         self._activation_seq = 0
         self.light_last_activation = {}  # Hue light rid -> (activation seq, scene_entity)
@@ -894,8 +898,15 @@ class SceneValidator(hass.Hass):
     def _handle_scene_activation(self, entity: str, source: str):
         """Debounce, filter and schedule validation for an activated scene entity."""
         if entity not in self.entity_id_to_hue_id:
-            self.log(f"Skipping {entity} - not a Hue scene (no entity registry mapping)",
-                     level="DEBUG")
+            if self.is_hue_scene(entity):
+                # Hue scene created after startup: the mapping is read once at start
+                if entity not in self.unmapped_scenes_reported:
+                    self.unmapped_scenes_reported.add(entity)
+                    self.log(f"[INFO] {entity} not in entity registry mapping - "
+                             f"restart AppDaemon to validate it", level="INFO")
+            else:
+                self.log(f"Skipping {entity} - not a Hue scene (no entity registry mapping)",
+                         level="DEBUG")
             return
         # Record before debounce/filtering: unvalidated scenes must still supersede
         activation_seq = self._record_activation(entity)
@@ -939,6 +950,18 @@ class SceneValidator(hass.Hass):
                     scene_entity=entity, activation_seq=activation_seq,
                     activated_at=self.get_now())
 
+    def _unusable_stop(self, scene_entity: str, check: SceneCheck) -> bool:
+        """True (and logs) if the check is unusable for a reason other than legacy actions.
+
+        Without a usable check the lamps cannot be classified, so nothing is
+        escalated (a blind re-trigger could undo the owner). Legacy string actions
+        keep the old re-trigger fallback.
+        """
+        if check.usable or check.legacy:
+            return False
+        self.error(f"[ERROR] {scene_entity} validation unusable - not escalated")
+        return True
+
     def _failing_lamp_states(self, failing: List[str]) -> Dict[str, Dict[str, Any]]:
         """State and last_updated of failing lamps (unreachable ones left out).
 
@@ -969,12 +992,12 @@ class SceneValidator(hass.Hass):
             return None
         lights_now = self._failing_lamp_states(check.failing)
         missed, changed = classify_scene_failures(check.failing, lights_now, activated_at)
-        window_end = activated_at + timedelta(seconds=self.transition_delay)
+        window_end = activated_at + REACTION_WINDOW
         for entity in changed:
             self.log(f"[{scene_entity}] [SKIP] {entity} changed after activation")
             if (check.kinds.get(entity) in ('brightness', 'color', 'color_temp')
                     and lights_now[entity]['last_updated'] <= window_end):
-                # Reacted to the scene, but not as the inventory says
+                # Reacted to the activation itself, but not as the inventory says
                 self.log(f"[WARN] {scene_entity} {entity} differs from inventory after "
                          f"reacting - inventory may be outdated", level="WARNING")
         if not missed:
@@ -1189,6 +1212,9 @@ class SceneValidator(hass.Hass):
                 self.record_success()
                 return
 
+            if self._unusable_stop(scene_entity, check):
+                return
+
             # Deliberate room off (all expected-on lights switched off after activation)
             if self._deliberate_room_off(scene_entity, scene_data, activated_at,
                                          "Level 2 re-trigger"):
@@ -1198,12 +1224,15 @@ class SceneValidator(hass.Hass):
             missed = self._missed_lamps(scene_entity, check, activated_at)
             if missed is not None and not missed:
                 return
-            if missed is not None and set(missed) != set(check.failing):
-                # Some failing lamps changed after the activation: a scene re-trigger
-                # would undo the owner (or Hue), so only the missed lamps get Level 3
+            if missed is not None and (on_off_only or set(missed) != set(check.failing)):
+                # A scene re-trigger would undo lamps changed after the activation
+                # (owner or Hue); in a dynamic scene the on/off check cannot even see
+                # owner dimming/recolouring. Only the missed lamps get Level 3.
+                reason = ("dynamic scene" if on_off_only
+                          else "lamps changed after activation")
                 self.log(f"[{scene_entity}] [FAIL] Validation failed - missed by "
                          f"{', '.join(missed)}; LEVEL 2 re-trigger skipped "
-                         f"(lamps changed after activation)", level="WARNING")
+                         f"({reason})", level="WARNING")
                 self.log(f"[{scene_entity}] LEVEL 3: Controlling missed lights individually")
                 self.run_in(
                     self.perform_level3_control,
@@ -1321,6 +1350,9 @@ class SceneValidator(hass.Hass):
                 self.record_success()
                 return
 
+            if self._unusable_stop(scene_entity, check):
+                return
+
             # Re-classify against the original activation: a lamp that shows an
             # update now was changed (owner or Hue) and is not commanded
             missed = self._missed_lamps(scene_entity, check, activated_at)
@@ -1421,6 +1453,8 @@ class SceneValidator(hass.Hass):
                              f"match now")
                     self.record_success()
                     return
+                if self._unusable_stop(scene_entity, check):
+                    return
                 missed = self._missed_lamps(scene_entity, check, activated_at)
                 if missed is not None:
                     if not missed:
@@ -1447,6 +1481,8 @@ class SceneValidator(hass.Hass):
                     return
                 final = self.validate_scene_state(scene_entity, scene_data,
                                                   on_off_only=on_off_only, only_entities=targets)
+                if self._unusable_stop(scene_entity, final):
+                    return
                 if final.passed:
                     if self._all_lights_skipped(scene_entity, final):
                         return
@@ -1822,7 +1858,7 @@ class SceneValidator(hass.Hass):
         # Check if actions are string representations (inventory format issue)
         if self._is_legacy_action_format(actions):
             self.log("Actions stored as strings - skipping validation, will re-trigger", level="WARNING")
-            return SceneCheck(passed=False, usable=False)
+            return SceneCheck(passed=False, usable=False, legacy=True)
 
         try:
             all_match = True
@@ -1859,10 +1895,15 @@ class SceneValidator(hass.Hass):
                     self._log_skip_unreachable(scene_entity, entity_id)
                     continue
 
-                # Compare states
+                # Compare states (a malformed action leaves only this lamp unchecked)
+                try:
+                    kind = self.compare_light_states(entity_id, expected, actual_state,
+                                                     scene_entity, on_off_only=on_off_only)
+                except Exception as e:  # noqa: BLE001
+                    self.log(f"[WARN] {scene_entity} {entity_id} not checked - {e}",
+                             level="WARNING")
+                    continue
                 checked += 1
-                kind = self.compare_light_states(entity_id, expected, actual_state, scene_entity,
-                                                 on_off_only=on_off_only)
                 if kind is not None:
                     all_match = False
                     if entity_id not in kinds:

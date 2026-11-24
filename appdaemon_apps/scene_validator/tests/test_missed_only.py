@@ -140,7 +140,7 @@ def test_inventory_outdated_warns_and_does_not_override(app):
     rec = spy_records(app)
     activate(app)
     set_lamp(app, LAMP_A, "on", 1)
-    set_lamp(app, LAMP_B, "on", 2, 128)   # reacted to the scene, but at 50%, inventory says 100%
+    set_lamp(app, LAMP_B, "on", 0.5, 128)  # reacted to the scene, but at 50%, inventory says 100%
 
     app.run_scheduled()
 
@@ -151,10 +151,10 @@ def test_inventory_outdated_warns_and_does_not_override(app):
     assert rec == []
 
 
-def test_owner_change_after_transition_window_does_not_warn(app):
+def test_owner_change_after_reaction_window_does_not_warn(app):
     activate(app)
     set_lamp(app, LAMP_A, "on", 1)
-    set_lamp(app, LAMP_B, "on", app.transition_delay + 30, 128)   # owner dimmed later
+    set_lamp(app, LAMP_B, "on", 3, 128)   # owner dimmed at +3 s; Level 1 runs at +5 s
 
     app.run_scheduled()
 

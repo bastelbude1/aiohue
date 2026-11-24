@@ -88,6 +88,8 @@ Limitations:
 - Hue-app generated off-rules usually also write a CLIP status sensor, so those buttons are treated as ambiguous and need evidence (a light switched off by the press) before anything is sent (safe direction). Only an unconditional off-rule makes a press a certain room-off.
 - Scene validation: if all lights a scene switched on are switched off within the check window (e.g. Hue app room off), this is treated as a deliberate room off and the scene is not re-triggered. (The switch-press room-off check still does not cover the Hue app.)
 - If a room is switched off just before a scene is activated and every lamp also misses the scene command, the scene may not be corrected (very unlikely).
+- Limitation (2.5.0): A scene activated via HA that was never activated via HA before and whose room select already shows that scene is not validated.
+- Dynamic scenes are never re-triggered (2.5.0): a re-trigger could undo owner dimming that the on/off check cannot see; lamps that missed the command get Level 3 (on/off only).
 
 Example: `off_validation.rooms: [Room_Office]`. Enable one room first and watch the log for `Room off` lines.
 

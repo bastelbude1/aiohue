@@ -44,7 +44,9 @@ def test_dynamic_scene_wrong_brightness_is_ok(app):
     assert any(m.endswith("[INFO] Dynamic scene - checking on/off only") for _l, m in app.logs)
 
 
-def test_dynamic_scene_lamp_off_is_retriggered(app):
+def test_dynamic_scene_lamp_off_is_not_retriggered(app):
+    # 2.5.0 review: a re-trigger could undo owner dimming the on/off check cannot
+    # see, so dynamic scenes go straight to Level 3 for the missed lamp (was: re-trigger)
     make_dynamic(app)
     activate(app)
     set_brightness(app, LAMP_A, 20)
@@ -52,7 +54,9 @@ def test_dynamic_scene_lamp_off_is_retriggered(app):
 
     run_next(app, "perform_scene_validation")
 
-    assert calls(app, "scene/turn_on") == [{"entity_id": SCENE}]
+    assert calls(app, "scene/turn_on") == []
+    assert [kw["only_entities"] for n, _d, kw in app.scheduled
+            if n == "perform_level3_control"] == [[LAMP_B]]
 
 
 def test_dynamic_scene_level3_switches_on_without_color(app):
