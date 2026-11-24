@@ -60,7 +60,7 @@ If you create one-time scripts with hardcoded data:
 ```bash
 #!/bin/bash
 # BAD: Hardcoded IP and username
-curl -X DELETE https://192.168.188.134/api/AbS1AjZ.../config/whitelist/xyz123
+curl -X DELETE https://192.168.1.100/api/abc123username.../config/whitelist/xyz123
 ```
 
 ### ✅ Right Way (Config-Based):
@@ -145,9 +145,9 @@ bridge_ip = input("Enter bridge IP: ")
 ### Bad Examples:
 ```python
 # NEVER DO THIS:
-BRIDGE_IP = "192.168.188.134"  # ❌ Hardcoded
-BRIDGE_ID = "ecb5faa015bb"     # ❌ Hardcoded
-USERNAME = "AbS1AjZ7EFyu..."   # ❌ Hardcoded
+BRIDGE_IP = "192.168.1.100"    # ❌ Hardcoded
+BRIDGE_ID = "abc123def456"     # ❌ Hardcoded
+USERNAME = "abc123username..." # ❌ Hardcoded
 ```
 
 ---

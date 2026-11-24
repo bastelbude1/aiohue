@@ -617,7 +617,7 @@ python3 query-hue-automation.py --bridge abc123def456
 python3 query-hue-automation.py --summary
 
 # Detailed automation information
-python3 query-hue-automation.py --type behavior_instances --name "*Markus*" --detailed
+python3 query-hue-automation.py --type behavior_instances --name "*Wake*" --detailed
 
 # JSON output for scripting
 python3 query-hue-automation.py --type smart_scenes --json
@@ -668,8 +668,8 @@ BEHAVIOR INSTANCES (14):
   ✓ Garten [running] - 45021769...
   ✓ Sonnenuntergang Licht An [running] - 6c4ee1da...
   ✓ ALARM Carport [running] - 964f50b4...
-  ✓ Markus Aufstehen [running] - ef92843d...
-  ✓ Dunja Aufstehen [running] - fab4e499...
+  ✓ Wake up Person_A [running] - ef92843d...
+  ✓ Wake up Person_B [running] - fab4e499...
   ...
 
 Bridge: Bridge_Office (abc123def456)
@@ -717,7 +717,7 @@ Bridge: Bridge_Office (abc123def456)
 
 BEHAVIOR INSTANCES:
 
-  [1] Natürlich Aufwachen Markus
+  [1] Natural wake up Person_A
       ID: a5b36562-95c9-418e-b705-9a0c9946d630
       Type: ResourceTypes.BEHAVIOR_INSTANCE
       Enabled: True
@@ -828,7 +828,7 @@ python3 query-hue-automation.py --name "*Nacht*"
 python3 query-hue-automation.py --type behavior_instances --state running
 
 # Detailed automation information
-python3 query-hue-automation.py --name "*Markus*" --detailed
+python3 query-hue-automation.py --name "*Wake*" --detailed
 
 # List all available automation templates
 python3 query-hue-automation.py --type behavior_scripts

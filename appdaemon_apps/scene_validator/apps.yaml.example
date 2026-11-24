@@ -4,6 +4,7 @@ scene_validator:
 
   # Inventory paths
   inventory_dir: /homeassistant/hue_inventories
+  # entity_registry_path: /homeassistant/.storage/core.entity_registry  # optional (default)
 
   # Timing Configuration (all values in seconds)
   transition_delay: 5              # Wait after scene activation before Level 1 validation (seconds)
@@ -29,11 +30,19 @@ scene_validator:
     success_threshold: 2           # Number of successes required to close circuit (from half-open state)
     timeout: 600                   # Cooldown period when circuit is open (seconds, 10 minutes)
 
+  # Room-off validation (2.4.0+, needs inventories with v1 rules)
+  # Disabled by default. After a Hue switch press that switches a room off,
+  # check the room's lights and switch off any that missed the command.
+  # off_validation:
+  #   enabled: false          # default off
+  #   rooms: []               # room names or v2 ids; empty = none
+  #   off_check_delay: 5      # seconds after the press
+
   # Scene Filtering
   scene_filter:
-    include_labels: []             # Hue scene labels to include (empty = use patterns instead)
-    exclude_labels: []             # Hue scene labels to exclude
-    exclude_uids: []               # Specific Hue scene IDs to exclude
+    include_labels: []             # HA label ids of the scene entity (entity registry) to include (empty = use patterns instead)
+    exclude_labels: []             # HA label ids of the scene entity (entity registry) to exclude
+    exclude_uids: []               # Hue scene ids (= scene entity unique_id) to exclude
     name_patterns:                 # Regex patterns - validate scenes matching these patterns
       - ".*Standard$"              # All scenes ending with "Standard"
       - ".*Nachtlicht$"            # All scenes ending with "Nachtlicht"
