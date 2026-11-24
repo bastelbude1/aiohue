@@ -518,19 +518,8 @@ def test_scene_validation_proceeds_after_off_check_skipped(ambiguous_app):
     assert turn_offs(app) == []
 
 
-def test_scene_step_is_deferred_at_most_once(ambiguous_app):
-    app = ambiguous_app
-    app.on_select_state_changed(SELECT, "state", "unknown", "Standard", {})
-    app.now += timedelta(seconds=2)
-    press(app)
-    set_light(app, LAMP_A, "off", 0.3)
-    set_light(app, LAMP_B, "off", 0.4)
-
-    run_next(app, "perform_scene_validation")
-    run_next(app, "perform_scene_validation")   # off-check still not run (e.g. delayed)
-
-    starts = [m for _lvl, m in app.logs if m == f"Starting validation: {SCENE}"]
-    assert len(starts) == 1
+# 2.5.1 (A4/CR10): test_scene_step_is_deferred_at_most_once was replaced by
+# test_scene_step_is_deferred_at_most_three_times (test_pr20_off_path.py)
 
 
 def test_unresolved_select_option_still_counts_as_scene_step(ambiguous_app):

@@ -204,3 +204,36 @@ def test_two_off_rules_same_button_different_groups():
     assert by_room["a-zone"]["lights"] == ["light.lamp_b"]
     assert by_room["a-room"]["ambiguous"] is False
     assert by_room["a-zone"]["ambiguous"] is False
+
+
+def test_conditional_then_unconditional_same_job_is_unambiguous():
+    # 2.5.1 (CR13): an unconditional off-rule wins when two rules give the same job
+    conditional = rule(1002, {"on": False})
+    conditional["conditions"].append(
+        {"address": "/config/localtime", "operator": "in", "value": "T22:00:00/T06:00:00"})
+    jobs = build_off_jobs([make_inventory({"1": conditional,
+                                           "2": rule(1002, {"on": False})})], registry())
+    assert len(jobs[BTN_ENTITY]) == 1
+    assert jobs[BTN_ENTITY][0]["ambiguous"] is False
+
+    jobs = build_off_jobs([make_inventory({"1": rule(1002, {"on": False}),
+                                           "2": conditional})], registry())
+    assert jobs[BTN_ENTITY][0]["ambiguous"] is False
+
+
+def test_merged_jobs_stay_ambiguous_with_non_off_action():
+    conditional = rule(1002, {"on": False})
+    conditional["conditions"].append(
+        {"address": "/config/localtime", "operator": "in", "value": "T22:00:00/T06:00:00"})
+    jobs = build_off_jobs([make_inventory({"1": conditional, "2": rule(1002, {"on": False}),
+                                           "3": rule(1002, {"scene": "xyz"})})], registry())
+    assert jobs[BTN_ENTITY][0]["ambiguous"] is True
+
+
+def test_ddx_rule_is_ambiguous():
+    # 2.5.1 (CR15): ddx is a delayed trigger, cancelled by a newer event
+    r = rule(1002, {"on": False})
+    r["conditions"][1] = {"address": "/sensors/16/state/lastupdated", "operator": "ddx",
+                          "value": "PT00:00:02"}
+    jobs = build_off_jobs([make_inventory({"1": r})], registry())
+    assert jobs[BTN_ENTITY][0]["ambiguous"] is True

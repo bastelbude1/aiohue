@@ -155,9 +155,10 @@ def _only_harmless_conditions(rule: Dict[str, Any], sensor_v1: str, code: int,
                               group_v1: str) -> bool:
     """True if every condition of an off-rule only says "this button was pressed".
 
-    Allowed: the rule's own buttonevent eq <code>, its sensor's lastupdated dx/ddx,
+    Allowed: the rule's own buttonevent eq <code>, its sensor's lastupdated dx,
     and "<own group>/state/any_on eq true". Anything else (time, CLIP status,
-    presence, ...) can make the bridge skip the rule on a press.
+    presence, ...) can make the bridge skip the rule on a press. ddx is not
+    harmless: the bridge fires later, and a newer event cancels it.
     """
     for cond in rule.get('conditions') or []:
         address = str(cond.get('address', ''))
@@ -165,7 +166,7 @@ def _only_harmless_conditions(rule: Dict[str, Any], sensor_v1: str, code: int,
         value = str(cond.get('value', '')).lower()
         if address == f"{sensor_v1}/state/buttonevent" and operator == 'eq' and value == str(code):
             continue
-        if address == f"{sensor_v1}/state/lastupdated" and operator in ('dx', 'ddx'):
+        if address == f"{sensor_v1}/state/lastupdated" and operator == 'dx':
             continue
         if address == f"{group_v1}/state/any_on" and operator == 'eq' and value == 'true':
             continue
@@ -244,9 +245,14 @@ def build_off_jobs(
                                           r, sensor_v1, code, match.group(1))),
                     }
                     existing = jobs.setdefault(entity, [])
-                    if not any(j['event_type'] == event_type and j['room_id'] == job['room_id']
-                               for j in existing):
+                    same = next((j for j in existing if j['event_type'] == event_type
+                                 and j['room_id'] == job['room_id']), None)
+                    if same is None:
                         existing.append(job)
+                    else:
+                        # An unconditional off-rule (and no non-off action on this
+                        # sensor/code) makes the merged job a certain room-off
+                        same['ambiguous'] = same['ambiguous'] and job['ambiguous']
     return jobs
 
 
@@ -255,19 +261,24 @@ def classify_off_check(
     press_window_start: datetime,
     scene_activated_in_window: bool,
     ambiguous: bool,
+    evidence_end: Optional[datetime] = None,
 ) -> Tuple[str, List[str]]:
     """Decide what a room-off check found.
 
     Returns ("skip_scene", []), ("skip_no_evidence", []), ("ok", []) or
     ("missed", [sorted entities]). A light is "changed" if it was updated at or
     after press_window_start; changed lights are never reported as missed.
+    For ambiguous jobs only changes up to evidence_end (None: no limit) count
+    as off-evidence; later changes are still "changed".
     """
     if scene_activated_in_window:
         return ("skip_scene", [])
     changed = {e for e, v in lights_now.items() if v["last_updated"] >= press_window_start}
     if ambiguous:
-        changed_off = [e for e in changed if lights_now[e]["state"] == "off"]
-        if not changed_off or len(changed_off) != len(changed):
+        evidence = {e for e in changed
+                    if evidence_end is None or lights_now[e]["last_updated"] <= evidence_end}
+        changed_off = [e for e in evidence if lights_now[e]["state"] == "off"]
+        if not changed_off or len(changed_off) != len(evidence):
             return ("skip_no_evidence", [])
     missed = sorted(e for e, v in lights_now.items() if v["state"] == "on" and e not in changed)
     if not missed:
@@ -300,6 +311,10 @@ def all_expected_on_lights_switched_off(
 
 MISSED_TOLERANCE = timedelta(seconds=1)
 REACTION_WINDOW = timedelta(seconds=2)  # update this soon after activation = reaction to it
+OFF_EVIDENCE_WINDOW = timedelta(seconds=2)  # bridge executes an off-rule this soon after the press
+PRESS_LOOKBACK = timedelta(seconds=1)  # light updates may reach HA before the button event
+OFF_DEFER_MAX = 3  # times a scene step waits for a pending room-off check
+OFF_DEFER_GRACE = timedelta(seconds=10)  # ... and only until this long after the check was due
 OWN_RETRIGGER_ECHO = timedelta(seconds=3)  # scene.* change this soon after our own scene/turn_on
 
 
@@ -430,6 +445,7 @@ class SceneValidator(hass.Hass):
         self.light_activation_at = {}  # Hue light rid -> last scene activation time
         self.latest_press = {}  # room_id -> t_press of the newest press (one pending check per room)
         self.off_check_evaluated = {}  # room_id -> t_press whose off-check has run
+        self.off_check_due = {}  # room_id -> scheduled time of its pending off-check
 
         # Debug logging - when False, only log failures and errors (not OK/success messages)
         self.debug_logging = self.args.get('debug_logging', False)
@@ -896,35 +912,43 @@ class SceneValidator(hass.Hass):
             return True
         return False
 
-    def _pending_off_wait(self, scene_entity: str) -> Optional[Tuple[str, float]]:
-        """(room, seconds to wait) if a room-off check on the scene's lights is still pending."""
+    def _pending_off_wait(self, scene_entity: str) -> Optional[Tuple[str, float, datetime]]:
+        """(room, seconds to wait, check due time) if a room-off check on the scene's
+        lights is still pending.
+
+        The wait is computed from the off-check's scheduled due time (+1 s), not
+        from the press time: a press delivered late is checked later.
+        """
         rids = set(self._scene_light_rids(scene_entity))
         pending = None
         for jobs in self.off_jobs.values():
             for job in jobs:
-                t_press = self.latest_press.get(job['room_id'])
-                if (t_press is None or self.off_check_evaluated.get(job['room_id']) == t_press
-                        or not rids & set(job['light_rids'])):
+                due = self.off_check_due.get(job['room_id'])
+                if due is None or not rids & set(job['light_rids']):
                     continue
-                wait = max((t_press + timedelta(seconds=self.off_check_delay)
-                            - self.get_now()).total_seconds(), 0.0) + 1
+                wait = max((due - self.get_now()).total_seconds(), 0.0) + 1
                 if pending is None or wait > pending[1]:
-                    pending = (job['room_name'] or job['room_id'], wait)
+                    pending = (job['room_name'] or job['room_id'], wait, due)
         return pending
 
     def _defer_for_pending_off(self, callback, kwargs, step: str) -> bool:
-        """Re-schedule a scene step (once) until a pending room-off check has decided.
+        """Re-schedule a scene step until a pending room-off check has decided.
 
         A confirmed room-off then claims the lights and the deferred step aborts
-        as superseded; a skipped off-check lets it proceed normally.
+        as superseded; a skipped off-check lets it proceed normally. Deferred at
+        most OFF_DEFER_MAX times, and only until OFF_DEFER_GRACE after the
+        check was due.
         """
-        if kwargs.get('off_deferred'):
-            return False
         scene_entity = kwargs.get('scene_entity')
         pending = self._pending_off_wait(scene_entity)
         if pending is None:
             return False
-        room, wait = pending
+        room, wait, due = pending
+        count = int(kwargs.get('off_defer_count', 1 if kwargs.get('off_deferred') else 0))
+        if count >= OFF_DEFER_MAX or self.get_now() >= due + OFF_DEFER_GRACE:
+            self.log(f"[{scene_entity}] [WARN] {step} - room-off check for {room} overdue, "
+                     f"proceeding", level="WARNING")
+            return False
         self.log(f"[{scene_entity}] [SKIP] {step} deferred - pending room-off check for {room}")
         self.run_in(callback, wait,
                     scene_entity=scene_entity,
@@ -934,7 +958,8 @@ class SceneValidator(hass.Hass):
                     activated_at=kwargs.get('activated_at'),
                     on_off_only=kwargs.get('on_off_only', False),
                     only_entities=kwargs.get('only_entities'),
-                    off_deferred=True)
+                    off_deferred=True,
+                    off_defer_count=count + 1)
         return True
 
     def _handle_scene_activation(self, entity: str, source: str,
@@ -1653,7 +1678,9 @@ class SceneValidator(hass.Hass):
         """Handle a Hue button event entity change (full state; state = press time)."""
         old = old_full.get('state') if isinstance(old_full, dict) else None
         new = new_full.get('state') if isinstance(new_full, dict) else None
-        if old == new or old in (None, "unknown", "unavailable") or new in (None, "unknown", "unavailable"):
+        # Only None/unavailable is a restore; "unknown" (entity just created) ->
+        # press is real. A restored old press is rejected by the age check below.
+        if old == new or old in (None, "unavailable") or new in (None, "unknown", "unavailable"):
             self.log(f"Skipping {entity} - not a new press ({old} -> {new})", level="DEBUG")
             return
 
@@ -1680,7 +1707,15 @@ class SceneValidator(hass.Hass):
                 self._claim_lights(f"off:{room}", job['light_rids'])
             self.log(f"[{room}] Room off press: {entity} ({event_type}), "
                      f"check in {self.off_check_delay}s")
-            self.run_in(self.perform_off_check, self.off_check_delay, job=job, t_press=t_press)
+            self.off_check_due[job['room_id']] = (self.get_now()
+                                                  + timedelta(seconds=self.off_check_delay))
+            try:
+                self.run_in(self.perform_off_check, self.off_check_delay,
+                            job=job, t_press=t_press)
+            except Exception as e:  # noqa: BLE001 - scheduler failure must not crash the app
+                # No check will run: scene steps must not wait for it
+                self.off_check_due.pop(job['room_id'], None)
+                self.error(f"[{room}] [SCHEDULER ERROR] Failed to schedule room off check: {e}")
 
     def _read_room_lights(self, entities: List[str], room: str) -> Dict[str, Dict[str, Any]]:
         """Current state and last_updated of the given lights (missing/unavailable left out)."""
@@ -1702,6 +1737,18 @@ class SceneValidator(hass.Hass):
         """True if a scene activation touched any of the lights at or after `since`."""
         return any(self.light_activation_at.get(rid) and self.light_activation_at[rid] >= since
                    for rid in light_rids)
+
+    def _scene_vetoes_press(self, job: Dict[str, Any], t_press: datetime) -> bool:
+        """True if a scene activation on the room lights makes the press a scene step.
+
+        Unambiguous job: only a scene strictly after the press (the press is the
+        room-off and overrides an older scene). Ambiguous job: also a scene up to
+        PRESS_LOOKBACK before the press (event order in HA is not guaranteed).
+        """
+        if job['ambiguous']:
+            return self._scene_activated_since(job['light_rids'], t_press - PRESS_LOOKBACK)
+        return any(self.light_activation_at.get(rid) and self.light_activation_at[rid] > t_press
+                   for rid in job['light_rids'])
 
     def _off_send_allowed(self, room: str) -> bool:
         """Shared circuit breaker and rate limits before sending any off command."""
@@ -1728,8 +1775,9 @@ class SceneValidator(hass.Hass):
                 self.log(f"[{room}] Room off check replaced by a newer press", level="DEBUG")
                 return
             self.off_check_evaluated[job['room_id']] = t_press
+            self.off_check_due.pop(job['room_id'], None)
 
-            window_start = t_press - timedelta(seconds=1)
+            window_start = t_press - PRESS_LOOKBACK
             lights_now = self._read_room_lights(job['lights'], room)
             if not lights_now:
                 self.log(f"[{room}] [SKIP] Room off: no light state available")
@@ -1737,8 +1785,9 @@ class SceneValidator(hass.Hass):
 
             result, missed = classify_off_check(
                 lights_now, window_start,
-                self._scene_activated_since(job['light_rids'], window_start),
+                self._scene_vetoes_press(job, t_press),
                 job['ambiguous'],
+                evidence_end=t_press + OFF_EVIDENCE_WINDOW,
             )
             if result == "skip_scene":
                 self.log(f"[{room}] [SKIP] Room off: scene activated on room lights (scene step)")
@@ -1781,13 +1830,16 @@ class SceneValidator(hass.Hass):
         if self.latest_press.get(job['room_id']) != t_press:
             self.log(f"[{room}] [SKIP] Room off {step} aborted - newer press")
             return None
-        window_start = t_press - timedelta(seconds=1)
+        window_start = t_press - PRESS_LOOKBACK
         lights_now = self._read_room_lights(kwargs['missed'], room)
+        if not lights_now:
+            # No observation of any target: neither verified nor failed
+            self.log(f"[{room}] [SKIP] Room off check inconclusive - target lamp(s) unreachable")
+            return None
         # Unambiguous rule on the subset: "on and no update since the press".
         # A lamp the owner switched or dimmed meanwhile was updated and is left alone.
         result, still_on = classify_off_check(
-            lights_now, window_start,
-            self._scene_activated_since(job['light_rids'], window_start), False,
+            lights_now, window_start, self._scene_vetoes_press(job, t_press), False,
         )
         if result == "skip_scene":
             self.log(f"[{room}] [SKIP] Room off {step} aborted - scene activated on room lights")

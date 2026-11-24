@@ -47,3 +47,21 @@ def test_unambiguous_button_needs_no_evidence():
     lights = {"light.lamp_b": lt("on", -60), "light.lamp_a": lt("on", -60)}
     assert classify_off_check(lights, WINDOW, False, False) == (
         "missed", ["light.lamp_a", "light.lamp_b"])
+
+
+def test_evidence_window_limits_off_evidence():
+    # 2.5.1 (CR12): only updates up to evidence_end are off-evidence
+    end = T + timedelta(seconds=2)
+    late_off = {"light.lamp_a": lt("off", 4), "light.lamp_b": lt("on", -60)}
+    assert classify_off_check(late_off, WINDOW, False, True) == ("missed", ["light.lamp_b"])
+    assert classify_off_check(late_off, WINDOW, False, True, evidence_end=end) == (
+        "skip_no_evidence", [])
+
+    # a later owner change is not evidence, but still "changed" (never commanded)
+    late_on = {"light.lamp_a": lt("off", 0.3), "light.lamp_b": lt("on", 4)}
+    assert classify_off_check(late_on, WINDOW, False, True) == ("skip_no_evidence", [])
+    assert classify_off_check(late_on, WINDOW, False, True, evidence_end=end) == ("ok", [])
+
+    boundary = {"light.lamp_a": lt("off", 2), "light.lamp_b": lt("on", -60)}
+    assert classify_off_check(boundary, WINDOW, False, True, evidence_end=end) == (
+        "missed", ["light.lamp_b"])
