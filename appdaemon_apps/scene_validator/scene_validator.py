@@ -384,6 +384,8 @@ class SceneValidator(hass.Hass):
         # State tracking
         self.inventories = []
         self.hue_id_to_entity_id = {}  # Hue unique_id -> HA entity_id mapping cache
+        self.entity_id_to_hue_id = {}  # reverse of hue_id_to_entity_id
+        self.entity_labels = {}  # HA entity_id -> entity registry label ids
         self.select_entity_to_unique_id = {}  # select.*_szene -> "<group_id>_scene_select"
         self._activation_seq = 0
         self.light_last_activation = {}  # Hue light rid -> (activation seq, scene_entity)
@@ -617,6 +619,8 @@ class SceneValidator(hass.Hass):
                 # Only map Hue platform entities
                 if platform == 'hue' and entity_id and unique_id:
                     self.hue_id_to_entity_id[unique_id] = entity_id
+                    self.entity_id_to_hue_id[entity_id] = unique_id
+                    self.entity_labels[entity_id] = list(entry.get('labels') or [])
                     if unique_id.endswith(SCENE_SELECT_SUFFIX):
                         self.select_entity_to_unique_id[entity_id] = unique_id
                     hue_count += 1
@@ -918,7 +922,7 @@ class SceneValidator(hass.Hass):
         self.log(f"Scene activated: {entity} (source: {source})")
 
         # Check if scene should be validated (filtering logic)
-        # Note: scene_uid not available in AppDaemon state attributes
+        # scene_uid is looked up in the entity registry mapping
         if not self.should_validate_scene(entity, None):
             self.log(f"Skipping validation for {entity} (filtered out)")
             return
@@ -1025,13 +1029,17 @@ class SceneValidator(hass.Hass):
         if not self.check_rate_limits(entity_id):
             return False
 
-        # Check UID exclusions (if scene_uid is available)
+        # Check UID exclusions (the scene's Hue id, from the entity registry)
+        scene_uid = scene_uid or self.entity_id_to_hue_id.get(entity_id)
         if scene_uid and scene_uid in self.exclude_uids:
             self.log(f"Scene {entity_id} excluded by UID", level="DEBUG")
             return False
 
-        # Get scene labels
-        scene_labels = self.get_state(entity_id, attribute="labels") or []
+        # Scene labels live in the entity registry (not in the state attributes)
+        if entity_id in self.entity_labels:
+            scene_labels = self.entity_labels[entity_id]
+        else:
+            scene_labels = self.get_state(entity_id, attribute="labels") or []
 
         # Check exclude labels (takes priority)
         if self.exclude_labels:

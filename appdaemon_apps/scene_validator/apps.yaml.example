@@ -40,9 +40,9 @@ scene_validator:
 
   # Scene Filtering
   scene_filter:
-    include_labels: []             # Hue scene labels to include (empty = use patterns instead)
-    exclude_labels: []             # Hue scene labels to exclude
-    exclude_uids: []               # Specific Hue scene IDs to exclude
+    include_labels: []             # HA label ids of the scene entity (entity registry) to include (empty = use patterns instead)
+    exclude_labels: []             # HA label ids of the scene entity (entity registry) to exclude
+    exclude_uids: []               # Hue scene ids (= scene entity unique_id) to exclude
     name_patterns:                 # Regex patterns - validate scenes matching these patterns
       - ".*Standard$"              # All scenes ending with "Standard"
       - ".*Nachtlicht$"            # All scenes ending with "Nachtlicht"
