@@ -310,3 +310,9 @@ Rule (scene validation, static and dynamic):
   validation.
 - The room-off check and the deliberate-room-off rule already treat
   unavailable lights conservatively and are unchanged.
+- Addendum (review of 2.4.2): the deliberate-room-off rule ignores unreachable
+  lights too. It considers only reachable expected-on lights and needs at least
+  one of them. If all reachable expected-on lights are `off` with
+  `last_updated >= activation time`, the off is deliberate. Without this, a
+  Hue-app room off in any room with an unreachable lamp would re-trigger the
+  scene and switch the room back on.
