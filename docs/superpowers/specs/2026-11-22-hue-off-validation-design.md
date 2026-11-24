@@ -316,3 +316,29 @@ Rule (scene validation, static and dynamic):
   `last_updated >= activation time`, the off is deliberate. Without this, a
   Hue-app room off in any room with an unreachable lamp would re-trigger the
   scene and switch the room back on.
+
+## Amendment 2026-11-24 (b): correct only lamps that missed the command (2.5.0)
+
+This comes from the whole-code review. The owner approved it.
+
+- **C2/C3, scene validation.** A failing lamp is corrected only if it shows
+  **no update at all since the activation** (`last_updated < activated_at - 1 s`).
+  That lamp missed the command.
+  - A lamp that updated after the activation but differs from the inventory is
+    left alone, with `[SKIP] <lamp> changed after activation`. Either the owner
+    changed it deliberately, or the scene was redefined in Hue and the
+    inventory is stale. In the stale case a `[WARN] ... inventory may be
+    outdated` line is added when the lamp's update came within the transition
+    window and still does not match.
+  - Level 2 (re-trigger the whole scene) runs only if every failing lamp is a
+    missed lamp. It never runs if any expected-on lamp was switched off after
+    the activation.
+  - Level 3 commands only lamps that still fail and qualify as missed.
+  - This replaces the earlier "single lamp switched off within 5 s is switched
+    back on" behaviour.
+- **C1, restored or re-added entities.**
+  - Scene state changes where `old` is None, `unavailable` or `unknown` are
+    ignored. So are changes whose timestamp is older than `transition_delay`
+    compared with `get_now()`.
+  - Select changes where `old` is None or `unavailable` are ignored.
+    `unknown -> <scene>` remains a normal activation.
