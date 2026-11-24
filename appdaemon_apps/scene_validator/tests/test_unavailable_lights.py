@@ -126,6 +126,8 @@ def test_control_skips_unreachable_directly(app, on_off_only):
 
 def test_real_failure_still_escalates_with_unavailable_present(app):
     set_ok(app, LAMP_A, 20)
+    set_light(app, LAMP_A, "on", -3600)        # missed: no update since the activation
+    app.full_states[LAMP_A]["attributes"] = {"brightness": 20}
     set_unreachable(app, LAMP_B)
     activate(app)
 

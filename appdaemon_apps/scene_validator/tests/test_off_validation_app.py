@@ -504,8 +504,8 @@ def test_scene_validation_proceeds_after_off_check_skipped(ambiguous_app):
     press(app)
     app.now += timedelta(seconds=0.5)
     app.on_select_state_changed(SELECT, "state", "unknown", "Standard", {})  # scene step
-    set_light(app, LAMP_A, "off", 0.3)
-    set_light(app, LAMP_B, "on", -3600)
+    set_light(app, LAMP_A, "off", -3600)        # missed the scene command (2.5.0: only
+    set_light(app, LAMP_B, "on", -3600)         # missed lamps are corrected)
 
     run_next(app, "perform_scene_validation")   # deferred: off-check still pending
     app.run_scheduled()

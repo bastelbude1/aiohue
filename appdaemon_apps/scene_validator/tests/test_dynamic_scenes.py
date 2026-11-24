@@ -72,13 +72,14 @@ def test_static_scene_wrong_brightness_still_fails(app):
     for attrs in ({"is_dynamic": False}, {}):
         app.service_calls.clear()
         app.attributes[SCENE] = attrs
-        app.last_validation_failures = []
-        set_brightness(app, LAMP_A, 20)
+        set_brightness(app, LAMP_A, 20, -3600)   # missed the command (no update since)
         set_brightness(app, LAMP_B, 255)
         scene_data = app.find_scene_in_inventory(SCENE)
 
-        assert app.validate_scene_state(SCENE, scene_data) is False
-        assert "brightness" in app.last_validation_failures
+        check = app.validate_scene_state(SCENE, scene_data)
+        assert check.passed is False
+        assert check.failing == [LAMP_A]
+        assert check.kinds == {LAMP_A: "brightness"}
 
     activate(app)
     app.run_scheduled()
@@ -92,7 +93,7 @@ def test_dynamic_scene_expected_off_light_on_is_switched_off_in_level3(app):
     inv_scene["actions"][1]["action"] = {"on": {"on": False}}
     activate(app)
     set_brightness(app, LAMP_A, 20)
-    set_brightness(app, LAMP_B, 40)
+    set_brightness(app, LAMP_B, 40, -3600)   # missed the off command
 
     app.run_scheduled()
 

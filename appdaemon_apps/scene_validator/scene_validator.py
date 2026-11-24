@@ -33,9 +33,10 @@ import appdaemon.plugins.hass.hassapi as hass
 import json
 import time
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Set, Tuple
 
 SCENE_SELECT_SUFFIX = "_scene_select"
 
@@ -291,6 +292,50 @@ def all_expected_on_lights_switched_off(
     return True
 
 
+MISSED_TOLERANCE = timedelta(seconds=1)
+
+
+def classify_scene_failures(
+    failing: List[str],
+    lights_now: Dict[str, Dict[str, Any]],
+    activated_at: datetime,
+) -> Tuple[List[str], List[str]]:
+    """Split failing scene lamps into (missed, changed).
+
+    A lamp missed the scene command if it shows no update since the activation
+    (last_updated < activated_at - 1 s); only those are corrected. Any later
+    update means the owner or Hue changed it (changed: left alone). Lamps
+    missing from lights_now count as neither.
+    """
+    missed: List[str] = []
+    changed: List[str] = []
+    for entity in failing:
+        light = lights_now.get(entity)
+        if light is None:
+            continue
+        if light["last_updated"] < activated_at - MISSED_TOLERANCE:
+            missed.append(entity)
+        else:
+            changed.append(entity)
+    return missed, changed
+
+
+@dataclass
+class SceneCheck:
+    """Result of one scene validation run.
+
+    usable: False when the scene cannot be validated (no or legacy actions).
+    failing: lamps that differ from the scene, in scene order.
+    kinds: failure kind per failing lamp ('on_off', 'brightness', 'color', 'color_temp').
+    checked: lamps actually compared (unreachable and unmapped lamps are skipped).
+    """
+    passed: bool
+    usable: bool = True
+    failing: List[str] = field(default_factory=list)
+    kinds: Dict[str, str] = field(default_factory=dict)
+    checked: int = 0
+
+
 class SceneValidator(hass.Hass):
     """
     AppDaemon app that validates Hue scene activations with fallback.
@@ -351,8 +396,6 @@ class SceneValidator(hass.Hass):
         self.validation_timestamps = []
         self.scene_validation_timestamps = {}
         self.recent_validations = {}  # {scene_entity: timestamp}
-        self.last_validation_failures = []  # Track what failed: 'on_off', 'brightness', 'color', 'color_temp'
-        self.last_validation_checked = None  # Lights actually compared in the last validation run
 
         # Tolerances for state comparison
         self.brightness_tolerance = self.args.get('brightness_tolerance', 5)  # ±5%
@@ -803,6 +846,7 @@ class SceneValidator(hass.Hass):
                     activation_seq=kwargs.get('activation_seq'),
                     activated_at=kwargs.get('activated_at'),
                     on_off_only=kwargs.get('on_off_only', False),
+                    only_entities=kwargs.get('only_entities'),
                     off_deferred=True)
         return True
 
@@ -849,6 +893,48 @@ class SceneValidator(hass.Hass):
         self.run_in(self.perform_scene_validation, self.transition_delay,
                     scene_entity=entity, activation_seq=activation_seq,
                     activated_at=self.get_now())
+
+    def _failing_lamp_states(self, failing: List[str]) -> Dict[str, Dict[str, Any]]:
+        """State and last_updated of failing lamps (unreachable ones left out).
+
+        A reachable lamp without a usable last_updated shows no provable update,
+        so it counts as missed (same convention as the deliberate-room-off rule).
+        """
+        lights_now = {}
+        for entity in failing:
+            state = self.get_state(entity, attribute="all") or {}
+            if self._state_unreachable(state.get('state')):
+                continue
+            last_updated = self._parse_ts(state.get('last_updated'))
+            if last_updated is None:
+                last_updated = datetime.min.replace(tzinfo=timezone.utc)
+            lights_now[entity] = {"state": state['state'], "last_updated": last_updated}
+        return lights_now
+
+    def _missed_lamps(self, scene_entity: str, check: SceneCheck,
+                      activated_at: Optional[datetime]) -> Optional[List[str]]:
+        """Failing lamps that missed the scene command; logs the ones left alone.
+
+        Returns None if the check cannot be classified (unusable result or no
+        activation time): the caller then treats every failing lamp as before.
+        Returns [] (after logging [OK] nothing to correct) if only lamps changed
+        after the activation fail.
+        """
+        if not check.usable or not isinstance(activated_at, datetime):
+            return None
+        lights_now = self._failing_lamp_states(check.failing)
+        missed, changed = classify_scene_failures(check.failing, lights_now, activated_at)
+        window_end = activated_at + timedelta(seconds=self.transition_delay)
+        for entity in changed:
+            self.log(f"[{scene_entity}] [SKIP] {entity} changed after activation")
+            if (check.kinds.get(entity) in ('brightness', 'color', 'color_temp')
+                    and lights_now[entity]['last_updated'] <= window_end):
+                # Reacted to the scene, but not as the inventory says
+                self.log(f"[WARN] {scene_entity} {entity} differs from inventory after "
+                         f"reacting - inventory may be outdated", level="WARNING")
+        if not missed:
+            self.log(f"[{scene_entity}] [OK] nothing to correct (only owner/Hue changes)")
+        return missed
 
     def _deliberate_room_off(self, scene_entity: str, scene_data: Dict[str, Any],
                              activated_at: Optional[datetime], step: str) -> bool:
@@ -1041,11 +1127,10 @@ class SceneValidator(hass.Hass):
 
             # LEVEL 1: Validate
             self.log(f"[{scene_entity}] LEVEL 1: Validating scene state")
-            # Reset failure tracking for new validation
-            self.last_validation_failures = []
+            check = self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only)
 
-            if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
-                if self._all_lights_skipped(scene_entity):
+            if check.passed:
+                if self._all_lights_skipped(scene_entity, check):
                     return
                 self.log(f"[{scene_entity}] [OK] Validation successful")
                 self.record_success()
@@ -1056,10 +1141,34 @@ class SceneValidator(hass.Hass):
                                          "Level 2 re-trigger"):
                 return
 
+            # Correct only lamps that missed the command (no update since the activation)
+            missed = self._missed_lamps(scene_entity, check, activated_at)
+            if missed is not None and not missed:
+                return
+            if missed is not None and set(missed) != set(check.failing):
+                # Some failing lamps changed after the activation: a scene re-trigger
+                # would undo the owner (or Hue), so only the missed lamps get Level 3
+                self.log(f"[{scene_entity}] [FAIL] Validation failed - missed by "
+                         f"{', '.join(missed)}; LEVEL 2 re-trigger skipped "
+                         f"(lamps changed after activation)", level="WARNING")
+                self.log(f"[{scene_entity}] LEVEL 3: Controlling missed lights individually")
+                self.run_in(
+                    self.perform_level3_control,
+                    0,
+                    scene_entity=scene_entity,
+                    scene_data=scene_data,
+                    activation_seq=activation_seq,
+                    activated_at=activated_at,
+                    on_off_only=on_off_only,
+                    only_entities=missed,
+                )
+                return
+
             # Analyze what failed to determine adaptive delay
+            failure_kinds = list(check.kinds.values())
             only_color_temp_failed = (
-                len(self.last_validation_failures) > 0 and
-                all(failure == 'color_temp' for failure in self.last_validation_failures)
+                len(failure_kinds) > 0 and
+                all(failure == 'color_temp' for failure in failure_kinds)
             )
 
             if only_color_temp_failed:
@@ -1068,7 +1177,7 @@ class SceneValidator(hass.Hass):
             else:
                 delay_multiplier = 1
 
-            self.log(f"[{scene_entity}] [FAIL] Validation failed (failures: {set(self.last_validation_failures)})", level="WARNING")
+            self.log(f"[{scene_entity}] [FAIL] Validation failed (failures: {set(failure_kinds)})", level="WARNING")
 
             # LEVEL 2: Re-trigger scene (async scheduling to avoid blocking)
             if self._abort_if_superseded(scene_entity, activation_seq, "Level 2 re-trigger"):
@@ -1150,20 +1259,26 @@ class SceneValidator(hass.Hass):
                 return
 
             # Level 2: Validate after re-trigger
-            # Reset failure tracking for Level 2 validation
-            self.last_validation_failures = []
+            check = self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only)
 
-            if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
-                if self._all_lights_skipped(scene_entity):
+            if check.passed:
+                if self._all_lights_skipped(scene_entity, check):
                     return
                 self.log(f"[{scene_entity}] [OK] Re-trigger successful")
                 self.record_success()
                 return
 
+            # Re-classify against the original activation: a lamp that shows an
+            # update now was changed (owner or Hue) and is not commanded
+            missed = self._missed_lamps(scene_entity, check, activated_at)
+            if missed is not None and not missed:
+                return
+
             # Analyze what failed in Level 2 to determine Level 3 delay
+            failure_kinds = [check.kinds[e] for e in (missed or check.failing) if e in check.kinds]
             only_color_temp_failed = (
-                len(self.last_validation_failures) > 0 and
-                all(failure == 'color_temp' for failure in self.last_validation_failures)
+                len(failure_kinds) > 0 and
+                all(failure == 'color_temp' for failure in failure_kinds)
             )
 
             # If Level 1 already used 2x delay (color temp only) and Level 2 still failed with color temp,
@@ -1176,7 +1291,7 @@ class SceneValidator(hass.Hass):
                 level3_delay = self.validation_delay
                 level3_delay_multiplier = 1
 
-            self.log(f"[{scene_entity}] [FAIL] Re-trigger failed (failures: {set(self.last_validation_failures)})", level="WARNING")
+            self.log(f"[{scene_entity}] [FAIL] Re-trigger failed (failures: {set(failure_kinds)})", level="WARNING")
 
             # LEVEL 3: Individual light control (with adaptive delay)
             self.log(f"[{scene_entity}] LEVEL 3: Controlling lights individually in {level3_delay}s")
@@ -1191,6 +1306,7 @@ class SceneValidator(hass.Hass):
                     activation_seq=activation_seq,
                     activated_at=activated_at,
                     on_off_only=on_off_only,
+                    only_entities=missed,
                 )
                 self.log(f"[{scene_entity}] [SCHEDULER] Level 3 control scheduled in {level3_delay}s", level="INFO")
             except Exception as e:  # noqa: BLE001 - Broad catch to prevent scheduler failures from crashing app
@@ -1238,9 +1354,32 @@ class SceneValidator(hass.Hass):
                                          "Level 3 control"):
                 return
 
+            # Only lamps that still fail and still qualify as missed are commanded
+            only_entities = kwargs.get('only_entities')
+            targets: Optional[Set[str]] = None
+            if only_entities is not None:
+                targets = set(only_entities)
+                check = self.validate_scene_state(scene_entity, scene_data,
+                                                  on_off_only=on_off_only, only_entities=targets)
+                if check.passed:
+                    if self._all_lights_skipped(scene_entity, check):
+                        return
+                    self.log(f"[{scene_entity}] [OK] Level 3 not needed - missed lights "
+                             f"match now")
+                    self.record_success()
+                    return
+                missed = self._missed_lamps(scene_entity, check, activated_at)
+                if missed is not None:
+                    if not missed:
+                        return
+                    targets = set(missed)
+                elif check.usable:
+                    targets = set(check.failing)
+
             # Control lights individually
             if not self.control_lights_individually(scene_data, on_off_only=on_off_only,
-                                              scene_entity=scene_entity):
+                                              scene_entity=scene_entity,
+                                              only_entities=targets):
                 self.error(f"[{scene_entity}] [FAIL] Level 3 control commands failed")
                 self.record_failure()
                 return
@@ -1253,15 +1392,17 @@ class SceneValidator(hass.Hass):
                 )
                 if self._abort_if_superseded(scene_entity, activation_seq, "Level 3 final validation"):
                     return
-                self.last_validation_failures = []
-                if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
-                    if self._all_lights_skipped(scene_entity):
+                final = self.validate_scene_state(scene_entity, scene_data,
+                                                  on_off_only=on_off_only, only_entities=targets)
+                if final.passed:
+                    if self._all_lights_skipped(scene_entity, final):
                         return
                     self.log(f"[{scene_entity}] [OK] Level 3 successful - final validation PASSED")
                     self.record_success()
                 else:
                     self.error(f"[{scene_entity}] [FAIL] Level 3 control executed, but final validation FAILED")
-                    self.error(f"[{scene_entity}] [FAIL] Still failing: {set(self.last_validation_failures)}")
+                    self.error(f"[{scene_entity}] [FAIL] Still failing: "
+                               f"{', '.join(f'{e} ({k})' for e, k in final.kinds.items())}")
                     self.record_failure()
 
             self.run_in(_final_level3_validation, self.level3_settle_delay)
@@ -1593,16 +1734,17 @@ class SceneValidator(hass.Hass):
     def _log_skip_unreachable(self, scene_entity: str, entity_id: str):
         self.log(f"[{scene_entity}] [SKIP] {entity_id} unavailable - not validated")
 
-    def _all_lights_skipped(self, scene_entity: str) -> bool:
+    def _all_lights_skipped(self, scene_entity: str, check: SceneCheck) -> bool:
         """After a validation that passed: True if no light was actually checked."""
-        if self.last_validation_checked == 0:
+        if check.checked == 0:
             self.log(f"[{scene_entity}] [SKIP] all scene lights unavailable - "
                      "not escalated, not recorded")
             return True
         return False
 
     def validate_scene_state(self, scene_entity: str, scene_data: Dict[str, Any],
-                             on_off_only: bool = False) -> bool:
+                             on_off_only: bool = False,
+                             only_entities: Optional[Set[str]] = None) -> SceneCheck:
         """
         Validate that all lights match expected scene state.
 
@@ -1610,27 +1752,30 @@ class SceneValidator(hass.Hass):
             scene_entity: Scene entity_id
             scene_data: Scene data from inventory
             on_off_only: Dynamic scene - compare only on/off, skip brightness/colour
+            only_entities: If set, judge only these lamps (Level 3 final validation)
 
         Returns:
-            True if all checked lights match, False otherwise. Unreachable lights
-            are skipped; self.last_validation_checked holds how many lights were
-            actually compared (0 with a True result means all lights were skipped).
+            SceneCheck: passed, the failing lamps and their failure kinds, and how
+            many lamps were compared. Unreachable lamps are skipped (checked == 0
+            with passed means all lamps were skipped). usable is False when the
+            scene cannot be validated (no or legacy actions).
         """
-        self.last_validation_checked = None
         actions = scene_data.get('actions', [])
 
         if not actions:
             self.log(f"Scene {scene_entity} has no actions", level="WARNING")
-            return False
+            return SceneCheck(passed=False, usable=False)
 
         # Check if actions are string representations (inventory format issue)
         if self._is_legacy_action_format(actions):
             self.log("Actions stored as strings - skipping validation, will re-trigger", level="WARNING")
-            return False
+            return SceneCheck(passed=False, usable=False)
 
         try:
             all_match = True
             checked = 0
+            failing: List[str] = []
+            kinds: Dict[str, str] = {}
 
             for action in actions:
                 target = action.get('target', {})
@@ -1647,6 +1792,9 @@ class SceneValidator(hass.Hass):
                     all_match = False
                     continue
 
+                if only_entities is not None and entity_id not in only_entities:
+                    continue
+
                 # Get expected state from action
                 expected = action.get('action', {})
 
@@ -1660,23 +1808,26 @@ class SceneValidator(hass.Hass):
 
                 # Compare states
                 checked += 1
-                if not self.compare_light_states(entity_id, expected, actual_state, scene_entity,
-                                                on_off_only=on_off_only):
+                kind = self.compare_light_states(entity_id, expected, actual_state, scene_entity,
+                                                 on_off_only=on_off_only)
+                if kind is not None:
                     all_match = False
+                    if entity_id not in kinds:
+                        failing.append(entity_id)
+                        kinds[entity_id] = kind
 
-            self.last_validation_checked = checked
-            return all_match
+            return SceneCheck(passed=all_match, failing=failing, kinds=kinds, checked=checked)
 
         except AttributeError as e:
             self.log(f"Inventory format issue (actions are strings): {e}", level="WARNING")
-            return False
+            return SceneCheck(passed=False, usable=False)
         except Exception as e:  # noqa: BLE001
             self.error(f"Error validating scene state: {e}")
-            return False
+            return SceneCheck(passed=False, usable=False)
 
     def compare_light_states(self, entity_id: str, expected: Dict[str, Any],
                             actual_state: Dict[str, Any], scene_entity: str = "unknown",
-                            on_off_only: bool = False) -> bool:
+                            on_off_only: bool = False) -> Optional[str]:
         """
         Compare expected and actual light states.
 
@@ -1688,7 +1839,8 @@ class SceneValidator(hass.Hass):
             on_off_only: Dynamic scene - only the on/off state is compared
 
         Returns:
-            True if states match within tolerances, False otherwise
+            None if the states match within tolerances, otherwise the failure kind:
+            'on_off', 'brightness', 'color' or 'color_temp'.
         """
         actual_attrs = actual_state.get('attributes', {})
         actual_on = actual_state.get('state') == 'on'
@@ -1697,12 +1849,11 @@ class SceneValidator(hass.Hass):
         expected_on = expected.get('on', {}).get('on', False)
         if expected_on != actual_on:
             self.log(f"[{scene_entity}] [{entity_id}] [ON_OFF] FAIL: exp {'ON' if expected_on else 'OFF'}, got {'ON' if actual_on else 'OFF'}", level="WARNING")
-            self.last_validation_failures.append('on_off')
-            return False
+            return 'on_off'
 
         # If light should be off, no need to check other attributes
         if not expected_on or on_off_only:
-            return True
+            return None
 
         # Check brightness
         expected_dimming = expected.get('dimming', {})
@@ -1720,8 +1871,7 @@ class SceneValidator(hass.Hass):
 
             if diff > self.brightness_tolerance:
                 self.log(f"[{scene_entity}] [{entity_id}] [BRIGHTNESS] FAIL: exp {expected_brightness:.1f}%, got {actual_brightness_pct:.1f}%, diff {diff:.1f}% > tol {self.brightness_tolerance}%", level="WARNING")
-                self.last_validation_failures.append('brightness')
-                return False
+                return 'brightness'
             elif self.debug_logging:
                 self.log(f"[{scene_entity}] [{entity_id}] [BRIGHTNESS] OK: exp {expected_brightness:.1f}%, got {actual_brightness_pct:.1f}%, diff {diff:.1f}% < tol {self.brightness_tolerance}%", level="INFO")
 
@@ -1737,8 +1887,7 @@ class SceneValidator(hass.Hass):
                 y_diff = abs(expected_xy['y'] - actual_xy[1])
                 if x_diff > self.color_tolerance or y_diff > self.color_tolerance:
                     self.log(f"[{scene_entity}] [{entity_id}] [COLOR_XY] FAIL: exp ({expected_xy['x']:.3f}, {expected_xy['y']:.3f}), got ({actual_xy[0]:.3f}, {actual_xy[1]:.3f}), diff (x:{x_diff:.3f}, y:{y_diff:.3f}) > tol {self.color_tolerance}", level="WARNING")
-                    self.last_validation_failures.append('color')
-                    return False
+                    return 'color'
                 elif self.debug_logging:
                     self.log(f"[{scene_entity}] [{entity_id}] [COLOR_XY] OK: exp ({expected_xy['x']:.3f}, {expected_xy['y']:.3f}), got ({actual_xy[0]:.3f}, {actual_xy[1]:.3f}), diff (x:{x_diff:.3f}, y:{y_diff:.3f}) < tol {self.color_tolerance}", level="INFO")
 
@@ -1754,22 +1903,24 @@ class SceneValidator(hass.Hass):
                     diff = abs(expected_ct - actual_ct)
                     if diff > self.color_temp_tolerance:
                         self.log(f"[{scene_entity}] [{entity_id}] [COLOR_TEMP] FAIL: exp {expected_ct}, got {actual_ct}, diff {diff} > tol {self.color_temp_tolerance}", level="WARNING")
-                        self.last_validation_failures.append('color_temp')
-                        return False
+                        return 'color_temp'
                     elif self.debug_logging:
                         self.log(f"[{scene_entity}] [{entity_id}] [COLOR_TEMP] OK: exp {expected_ct}, got {actual_ct}, diff {diff} < tol {self.color_temp_tolerance}", level="INFO")
 
-        return True
+        return None
 
     def control_lights_individually(self, scene_data: Dict[str, Any],
                                     on_off_only: bool = False,
-                                    scene_entity: str = "control") -> bool:
+                                    scene_entity: str = "control",
+                                    only_entities: Optional[Set[str]] = None) -> bool:
         """
         Control each light individually to achieve desired state.
 
         Args:
             scene_data: Scene data from inventory
             on_off_only: Dynamic scene - only switch on/off, no brightness or colour
+            only_entities: If set, command only these lamps (the ones that missed
+                the scene command); all other lamps are left alone
 
         Returns:
             True if all lights controlled successfully, False otherwise
@@ -1798,6 +1949,9 @@ class SceneValidator(hass.Hass):
             if not entity_id:
                 self.log(f"Could not map Hue ID {rid} to entity_id", level="WARNING")
                 all_success = False
+                continue
+
+            if only_entities is not None and entity_id not in only_entities:
                 continue
 
             if self._state_unreachable(self.get_state(entity_id)):
