@@ -66,14 +66,12 @@ def _scene_group_rid(scene: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def resolve_scene_entity_from_select(
+def build_scene_option_map(
     select_unique_id: str,
-    option: str,
     inventories: List[Dict[str, Any]],
-    hue_id_to_entity_id: Dict[str, str],
-) -> Optional[str]:
+) -> Dict[str, str]:
     """
-    Map a Hue scene select option to the exact scene.* entity_id via scene ID.
+    {select option name: Hue scene id} for the group of a Hue scene select.
 
     The select entity only exposes scene names, and Hue allows duplicate names
     within a group. Rebuilds the option names exactly like Home Assistant's
@@ -96,8 +94,17 @@ def resolve_scene_entity_from_select(
             repeat += 1
             candidate = f"{name} ({repeat})"
         option_to_scene_id[candidate] = scene_id
+    return option_to_scene_id
 
-    scene_id = option_to_scene_id.get(option)
+
+def resolve_scene_entity_from_select(
+    select_unique_id: str,
+    option: str,
+    inventories: List[Dict[str, Any]],
+    hue_id_to_entity_id: Dict[str, str],
+) -> Optional[str]:
+    """Map a Hue scene select option to the exact scene.* entity_id via scene ID."""
+    scene_id = build_scene_option_map(select_unique_id, inventories).get(option)
     return hue_id_to_entity_id.get(scene_id) if scene_id else None
 
 
@@ -293,6 +300,7 @@ def all_expected_on_lights_switched_off(
 
 MISSED_TOLERANCE = timedelta(seconds=1)
 REACTION_WINDOW = timedelta(seconds=2)  # update this soon after activation = reaction to it
+OWN_RETRIGGER_ECHO = timedelta(seconds=3)  # scene.* change this soon after our own scene/turn_on
 
 
 def classify_scene_failures(
@@ -393,6 +401,8 @@ class SceneValidator(hass.Hass):
         self.select_entity_to_unique_id = {}  # select.*_szene -> "<group_id>_scene_select"
         self._activation_seq = 0
         self.light_last_activation = {}  # Hue light rid -> (activation seq, scene_entity)
+        self.latest_scene_seq = {}  # scene_entity -> seq of its newest (non-duplicate) activation
+        self.own_retrigger = {}  # scene_entity -> time of the validator's own Level 2 scene/turn_on
         self.interrupted_scenes = set()  # scenes whose lights another scene took over
         self.circuit_breaker_state = 'CLOSED'
         self.circuit_breaker_failures = 0
@@ -741,9 +751,16 @@ class SceneValidator(hass.Hass):
             self.log(f"Skipping {entity} - no state change", level="DEBUG")
             return
         # Restored or re-added entity (integration reload, HA restart): the state is
-        # the last activation time, not a new activation
-        if old in (None, "unavailable", "unknown"):
+        # the last activation time, not a new activation. "unknown" (never activated)
+        # -> fresh timestamp is a real first activation; the stale check below
+        # rejects a restored old timestamp.
+        if old in (None, "unavailable"):
             self.log(f"Skipping {entity} - restored state ({old} -> {new})", level="DEBUG")
+            return
+        own_call = self.own_retrigger.get(entity)
+        if own_call is not None and timedelta(0) <= self.get_now() - own_call <= OWN_RETRIGGER_ECHO:
+            # Echo of the validator's own Level 2 re-trigger: not a new activation
+            self.log(f"Skipping {entity} - echo of own re-trigger", level="DEBUG")
             return
         activated = self._parse_ts(new)
         if (activated is not None
@@ -751,7 +768,8 @@ class SceneValidator(hass.Hass):
             self.log(f"Skipping {entity} - stale activation time {new}", level="DEBUG")
             return
 
-        self._handle_scene_activation(entity, source="scene entity (HA-initiated)")
+        self._handle_scene_activation(entity, source="scene entity (HA-initiated)",
+                                      activated_at=activated)
 
     def on_select_state_changed(self, entity, _attribute, old, new, _kwargs):
         """
@@ -771,23 +789,40 @@ class SceneValidator(hass.Hass):
             return
 
         select_unique_id = self.select_entity_to_unique_id.get(entity)
+        group_rids: List[str] = []
         if select_unique_id:
             # Any active-scene change is a scene step for room-off evidence, even if
             # the option cannot be resolved to a scene entity below
             now = self.get_now()
-            for rid in self._group_light_rids(select_unique_id.removesuffix(SCENE_SELECT_SUFFIX)):
+            group_rids = self._group_light_rids(select_unique_id.removesuffix(SCENE_SELECT_SUFFIX))
+            for rid in group_rids:
                 self.light_activation_at[rid] = now
         scene_entity = None
+        option_map: Dict[str, str] = {}
         if select_unique_id:
-            scene_entity = resolve_scene_entity_from_select(
-                select_unique_id, new, self.inventories, self.hue_id_to_entity_id
-            )
+            option_map = build_scene_option_map(select_unique_id, self.inventories)
+            scene_id = option_map.get(new)
+            scene_entity = self.hue_id_to_entity_id.get(scene_id) if scene_id else None
         if not scene_entity:
             self.log(f"[WARN] Could not resolve '{new}' from {entity} to a scene entity "
                      f"(smart scene or inventory outdated?)", level="WARNING")
+            self._claim_unresolved(entity, group_rids)
+            return
+        options = self.get_state(entity, attribute="options")
+        if not isinstance(options, list) or set(options) != set(option_map):
+            # Names (and the " (n)" numbering of duplicates) shifted since the
+            # inventory was written: the option may point to another scene
+            self.log(f"[WARN] {entity} options differ from inventory - not validated "
+                     f"(regenerate inventory)", level="WARNING")
+            self._claim_unresolved(entity, group_rids)
             return
 
         self._handle_scene_activation(scene_entity, source=f"{entity} (bridge-reported)")
+
+    def _claim_unresolved(self, select_entity: str, group_rids: List[str]):
+        """An unattributable scene on the group: older chains on its lights abort."""
+        if group_rids:
+            self._claim_lights(f"unresolved:{select_entity}", group_rids)
 
     def _group_light_rids(self, group_id: str) -> List[str]:
         """Hue light rids of the room/zone with this v2 id ([] if unknown)."""
@@ -801,9 +836,7 @@ class SceneValidator(hass.Hass):
 
     def _scene_light_rids(self, scene_entity: str) -> List[str]:
         """Return the Hue light rids of a scene (silent lookup, [] if unknown)."""
-        hue_scene_id = next(
-            (uid for uid, ent in self.hue_id_to_entity_id.items() if ent == scene_entity), None
-        )
+        hue_scene_id = self.entity_id_to_hue_id.get(scene_entity)
         if not hue_scene_id:
             return []
         for inventory in self.inventories:
@@ -846,7 +879,16 @@ class SceneValidator(hass.Hass):
         return None
 
     def _abort_if_superseded(self, scene_entity: str, activation_seq: Optional[int], step: str) -> bool:
-        """Log and return True if a newer scene replaced this one before `step`."""
+        """Log and return True if a newer activation replaced this one before `step`.
+
+        Newer means another scene (or room-off) on any of its lights, or a newer
+        activation of the same scene (A -> B -> A: only the newest chain runs).
+        """
+        if (activation_seq is not None
+                and activation_seq < self.latest_scene_seq.get(scene_entity, 0)):
+            self.log(f"[{scene_entity}] [SKIP] {step} - superseded by a newer activation "
+                     f"of the same scene")
+            return True
         newer = self._superseded_by(scene_entity, activation_seq)
         if newer:
             self.log(f"[{scene_entity}] [SKIP] {step} aborted - superseded by newer "
@@ -895,8 +937,13 @@ class SceneValidator(hass.Hass):
                     off_deferred=True)
         return True
 
-    def _handle_scene_activation(self, entity: str, source: str):
-        """Debounce, filter and schedule validation for an activated scene entity."""
+    def _handle_scene_activation(self, entity: str, source: str,
+                                 activated_at: Optional[datetime] = None):
+        """Debounce, filter and schedule validation for an activated scene entity.
+
+        activated_at: the scene's own activation timestamp (scene.* path);
+        None means get_now() (select path: the select carries no time).
+        """
         if entity not in self.entity_id_to_hue_id:
             if self.is_hue_scene(entity):
                 # Hue scene created after startup: the mapping is read once at start
@@ -934,6 +981,9 @@ class SceneValidator(hass.Hass):
                         f"(debounce: {self.validation_debounce}s)", level="DEBUG")
                 return
 
+        # A real new activation (not a duplicate report): older chains of this
+        # scene abort, even if this one is filtered out below
+        self.latest_scene_seq[entity] = activation_seq
         self.log(f"Scene activated: {entity} (source: {source})")
 
         # Check if scene should be validated (filtering logic)
@@ -948,16 +998,17 @@ class SceneValidator(hass.Hass):
         # Schedule validation after transition delay
         self.run_in(self.perform_scene_validation, self.transition_delay,
                     scene_entity=entity, activation_seq=activation_seq,
-                    activated_at=self.get_now())
+                    activated_at=activated_at if activated_at is not None else self.get_now())
 
-    def _unusable_stop(self, scene_entity: str, check: SceneCheck) -> bool:
+    def _unusable_stop(self, scene_entity: str, check: SceneCheck,
+                       on_off_only: bool = False) -> bool:
         """True (and logs) if the check is unusable for a reason other than legacy actions.
 
         Without a usable check the lamps cannot be classified, so nothing is
         escalated (a blind re-trigger could undo the owner). Legacy string actions
-        keep the old re-trigger fallback.
+        keep the old re-trigger fallback, except in a dynamic scene (never replayed).
         """
-        if check.usable or check.legacy:
+        if check.usable or (check.legacy and not on_off_only):
             return False
         self.error(f"[ERROR] {scene_entity} validation unusable - not escalated")
         return True
@@ -1003,6 +1054,31 @@ class SceneValidator(hass.Hass):
         if not missed:
             self.log(f"[{scene_entity}] [OK] nothing to correct (only owner/Hue changes)")
         return missed
+
+    def _lamps_touched_after_reaction(self, scene_data: Dict[str, Any],
+                                      activated_at: datetime) -> List[str]:
+        """Reachable scene lamps updated at or after activated_at + REACTION_WINDOW.
+
+        Such a lamp (failing or passing) was changed after the scene reacted,
+        most likely by the owner, so replaying the whole scene would undo it.
+        """
+        actions = scene_data.get('actions', []) if isinstance(scene_data, dict) else []
+        if self._is_legacy_action_format(actions):
+            return []
+        window_end = activated_at + REACTION_WINDOW
+        touched: List[str] = []
+        for action in actions:
+            rid = action.get('target', {}).get('rid') if isinstance(action, dict) else None
+            entity = self.get_entity_id_from_hue_id(rid) if rid else None
+            if not entity or entity in touched:
+                continue
+            state = self.get_state(entity, attribute="all") or {}
+            if self._state_unreachable(state.get('state')):
+                continue
+            last_updated = self._parse_ts(state.get('last_updated'))
+            if last_updated is not None and last_updated >= window_end:
+                touched.append(entity)
+        return touched
 
     def _deliberate_room_off(self, scene_entity: str, scene_data: Dict[str, Any],
                              activated_at: Optional[datetime], step: str) -> bool:
@@ -1212,7 +1288,7 @@ class SceneValidator(hass.Hass):
                 self.record_success()
                 return
 
-            if self._unusable_stop(scene_entity, check):
+            if self._unusable_stop(scene_entity, check, on_off_only=on_off_only):
                 return
 
             # Deliberate room off (all expected-on lights switched off after activation)
@@ -1224,12 +1300,20 @@ class SceneValidator(hass.Hass):
             missed = self._missed_lamps(scene_entity, check, activated_at)
             if missed is not None and not missed:
                 return
-            if missed is not None and (on_off_only or set(missed) != set(check.failing)):
+            adjusted = (self._lamps_touched_after_reaction(scene_data, activated_at)
+                        if missed is not None else [])
+            if missed is not None and (on_off_only or set(missed) != set(check.failing)
+                                       or adjusted):
                 # A scene re-trigger would undo lamps changed after the activation
-                # (owner or Hue); in a dynamic scene the on/off check cannot even see
-                # owner dimming/recolouring. Only the missed lamps get Level 3.
-                reason = ("dynamic scene" if on_off_only
-                          else "lamps changed after activation")
+                # (owner or Hue), failing or passing; in a dynamic scene the on/off
+                # check cannot even see owner dimming/recolouring. Only the missed
+                # lamps get Level 3.
+                if on_off_only:
+                    reason = "dynamic scene"
+                elif set(missed) != set(check.failing):
+                    reason = "lamps changed after activation"
+                else:
+                    reason = f"{', '.join(adjusted)} adjusted after the scene reacted"
                 self.log(f"[{scene_entity}] [FAIL] Validation failed - missed by "
                          f"{', '.join(missed)}; LEVEL 2 re-trigger skipped "
                          f"({reason})", level="WARNING")
@@ -1265,6 +1349,8 @@ class SceneValidator(hass.Hass):
             if self._abort_if_superseded(scene_entity, activation_seq, "Level 2 re-trigger"):
                 return
             self.log(f"[{scene_entity}] LEVEL 2: Re-triggering scene")
+            # Its scene.* echo must not count as a new activation
+            self.own_retrigger[scene_entity] = self.get_now()
             self.call_service("scene/turn_on", entity_id=scene_entity)
 
             # Schedule level 2 validation after adaptive delay (non-blocking)

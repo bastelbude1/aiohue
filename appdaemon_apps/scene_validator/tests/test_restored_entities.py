@@ -37,9 +37,11 @@ def test_scene_restored_after_reload_is_ignored(app):
     assert no_warnings(app)
 
 
-@pytest.mark.parametrize("old", ["unavailable", "unknown"])
-def test_scene_old_unavailable_is_ignored(app, old):
-    app.on_scene_state_changed(SCENE, "state", old, fresh(app), {})
+def test_scene_old_unavailable_is_ignored(app):
+    # 2.5.1 (A1): old "unknown" is no longer a restore - a never-activated scene
+    # activated via HA must validate (test_pr20_scene_path); a restored old
+    # timestamp is still rejected by the stale check
+    app.on_scene_state_changed(SCENE, "state", "unavailable", fresh(app), {})
 
     assert app.scheduled == []
     assert no_warnings(app)

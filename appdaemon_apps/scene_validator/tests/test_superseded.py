@@ -55,7 +55,8 @@ def app(tmp_path):
         "scene_filter": {"name_patterns": [".*Standard$"]},
     }
     validator.attributes = {STANDARD: {"friendly_name": "Buero Arbeiten Standard"},
-                            ABENDS: {"friendly_name": "Buero Arbeiten Abends"}}
+                            ABENDS: {"friendly_name": "Buero Arbeiten Abends"},
+                            SELECT: {"options": ["Arbeiten Abends", "Arbeiten Standard"]}}
     validator.initialize()
     return validator
 

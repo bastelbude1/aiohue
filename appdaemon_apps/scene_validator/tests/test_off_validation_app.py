@@ -65,6 +65,7 @@ def build_app(tmp_path, rules=None, off_validation=..., with_v1=True, reg=None):
     if off_validation is not None:
         app.args["off_validation"] = off_validation
     app.full_states = {}
+    app.attributes[SELECT] = {"options": ["Standard"]}  # HA select options (2.5.1 check)
     app.initialize()
     return app
 

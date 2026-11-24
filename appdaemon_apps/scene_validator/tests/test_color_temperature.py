@@ -43,6 +43,7 @@ def make_app(tmp_path):
         app = SceneValidator(states={SCENE: "unknown", SELECT: "unknown",
                                      LIGHT: light_state["state"]})
         app.full_states = {LIGHT: light_state}
+        app.attributes[SELECT] = {"options": ["Standard"]}
         app.args = {"inventory_dir": str(inventory_dir), "entity_registry_path": str(registry)}
         app.initialize()
         return app

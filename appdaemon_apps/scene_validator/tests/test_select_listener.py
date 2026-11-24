@@ -31,6 +31,7 @@ def make_app(tmp_path, states):
     ]}}))
 
     validator = SceneValidator(states=states)
+    validator.attributes[SELECT] = {"options": ["Standard"]}
     validator.args = {
         "inventory_dir": str(inventory_dir),
         "entity_registry_path": str(registry),

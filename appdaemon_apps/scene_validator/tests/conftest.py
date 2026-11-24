@@ -2,7 +2,7 @@
 
 import sys
 import types
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -31,11 +31,27 @@ class FakeHass:
     def run_in(self, callback, delay, **kwargs):
         self.scheduled.append((callback.__name__, delay, kwargs))
         self.callbacks = getattr(self, "callbacks", []) + [(callback, kwargs)]
+        self.due_at = getattr(self, "due_at", {})
+        self.due_at[id(kwargs)] = self.now + timedelta(seconds=delay)
 
     def run_scheduled(self):
         """Run all pending scheduled callbacks (including ones they schedule)."""
         while getattr(self, "callbacks", []):
             callback, kwargs = self.callbacks.pop(0)
+            callback(kwargs)
+
+    def run_timed(self):
+        """Run pending callbacks in due-time order, advancing self.now to each due time.
+
+        Records (callback name, time) in self.run_log.
+        """
+        self.run_log = getattr(self, "run_log", [])
+        while getattr(self, "callbacks", []):
+            index = min(range(len(self.callbacks)),
+                        key=lambda i: self.due_at.get(id(self.callbacks[i][1]), self.now))
+            callback, kwargs = self.callbacks.pop(index)
+            self.now = max(self.now, self.due_at.pop(id(kwargs), self.now))
+            self.run_log.append((callback.__name__, self.now))
             callback(kwargs)
 
     def call_service(self, service, **kwargs):
