@@ -40,7 +40,8 @@ def make_app(tmp_path):
             {"entity_id": LIGHT, "unique_id": "light-1", "platform": "hue"},
             {"entity_id": SELECT, "unique_id": f"{GROUP}_scene_select", "platform": "hue"},
         ]}}))
-        app = SceneValidator(states={SCENE: "unknown", SELECT: "unknown"})
+        app = SceneValidator(states={SCENE: "unknown", SELECT: "unknown",
+                                     LIGHT: light_state["state"]})
         app.full_states = {LIGHT: light_state}
         app.args = {"inventory_dir": str(inventory_dir), "entity_registry_path": str(registry)}
         app.initialize()

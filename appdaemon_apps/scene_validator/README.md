@@ -1,6 +1,6 @@
 # Scene Validator for Philips Hue
 
-**Version:** 2.4.1
+**Version:** 2.4.2
 
 AppDaemon automation for validating Philips Hue scene activations in Home Assistant with intelligent 3-level escalation.
 
@@ -129,6 +129,7 @@ Set `debug_logging: false` to only show failures (cleaner logs for production).
 
 ## Version History
 
+- **2.4.2**: Unreachable lights (unavailable/unknown) are skipped in scene validation and never controlled; a scene is no longer failed or re-triggered because of them.
 - **2.4.1**: Dynamic scenes (is_dynamic) are validated and corrected on/off only, so animations are not frozen. Validating every scene is now safe (remove name_patterns).
 - **2.4.0**: Room-off validation after Hue switch presses (optional, `off_validation`); inventory script writes rooms/zones, buttons and v1 `rules`
 - **2.3.2**: HA 2026.x compatibility for color temperature - Level 3 sends `color_temp_kelvin` (HA rejects the removed `color_temp`), validation reads `color_temp_kelvin` (color temperature checks were silently skipped)

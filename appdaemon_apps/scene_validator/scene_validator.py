@@ -24,10 +24,10 @@ Requirements:
   validation needs inventories with v1 rules from scripts/inventory-hue-bridge.py)
 
 Author: Scene Validator
-Version: 2.4.1 (Dynamic scenes are validated and corrected on/off only)
+Version: 2.4.2 (Unreachable lights are skipped in scene validation and never controlled)
 """
 
-__VERSION__ = "2.4.1"
+__VERSION__ = "2.4.2"
 
 import appdaemon.plugins.hass.hassapi as hass
 import json
@@ -349,6 +349,7 @@ class SceneValidator(hass.Hass):
         self.scene_validation_timestamps = {}
         self.recent_validations = {}  # {scene_entity: timestamp}
         self.last_validation_failures = []  # Track what failed: 'on_off', 'brightness', 'color', 'color_temp'
+        self.last_validation_checked = None  # Lights actually compared in the last validation run
 
         # Tolerances for state comparison
         self.brightness_tolerance = self.args.get('brightness_tolerance', 5)  # ±5%
@@ -1025,6 +1026,8 @@ class SceneValidator(hass.Hass):
             self.last_validation_failures = []
 
             if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
+                if self._all_lights_skipped(scene_entity):
+                    return
                 self.log(f"[{scene_entity}] [OK] Validation successful")
                 self.record_success()
                 return
@@ -1132,6 +1135,8 @@ class SceneValidator(hass.Hass):
             self.last_validation_failures = []
 
             if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
+                if self._all_lights_skipped(scene_entity):
+                    return
                 self.log(f"[{scene_entity}] [OK] Re-trigger successful")
                 self.record_success()
                 return
@@ -1230,6 +1235,8 @@ class SceneValidator(hass.Hass):
                     return
                 self.last_validation_failures = []
                 if self.validate_scene_state(scene_entity, scene_data, on_off_only=on_off_only):
+                    if self._all_lights_skipped(scene_entity):
+                        return
                     self.log(f"[{scene_entity}] [OK] Level 3 successful - final validation PASSED")
                     self.record_success()
                 else:
@@ -1558,6 +1565,22 @@ class SceneValidator(hass.Hass):
         """True if HA reports the scene as dynamic (None or missing means static)."""
         return bool(self.get_state(scene_entity, attribute="is_dynamic"))
 
+    @staticmethod
+    def _state_unreachable(state: Any) -> bool:
+        """True if an HA light state means the light is unreachable (or missing)."""
+        return state in (None, "unavailable", "unknown")
+
+    def _log_skip_unreachable(self, scene_entity: str, entity_id: str):
+        self.log(f"[{scene_entity}] [SKIP] {entity_id} unavailable - not validated")
+
+    def _all_lights_skipped(self, scene_entity: str) -> bool:
+        """After a validation that passed: True if no light was actually checked."""
+        if self.last_validation_checked == 0:
+            self.log(f"[{scene_entity}] [SKIP] all scene lights unavailable - "
+                     "not escalated, not recorded")
+            return True
+        return False
+
     def validate_scene_state(self, scene_entity: str, scene_data: Dict[str, Any],
                              on_off_only: bool = False) -> bool:
         """
@@ -1569,8 +1592,11 @@ class SceneValidator(hass.Hass):
             on_off_only: Dynamic scene - compare only on/off, skip brightness/colour
 
         Returns:
-            True if all lights match, False otherwise
+            True if all checked lights match, False otherwise. Unreachable lights
+            are skipped; self.last_validation_checked holds how many lights were
+            actually compared (0 with a True result means all lights were skipped).
         """
+        self.last_validation_checked = None
         actions = scene_data.get('actions', [])
 
         if not actions:
@@ -1584,6 +1610,7 @@ class SceneValidator(hass.Hass):
 
         try:
             all_match = True
+            checked = 0
 
             for action in actions:
                 target = action.get('target', {})
@@ -1606,16 +1633,18 @@ class SceneValidator(hass.Hass):
                 # Get actual state from HA
                 actual_state = self.get_state(entity_id, attribute="all")
 
-                if not actual_state:
-                    self.log(f"Could not get state for {entity_id}", level="WARNING")
-                    all_match = False
+                if (not actual_state
+                        or self._state_unreachable(actual_state.get('state'))):
+                    self._log_skip_unreachable(scene_entity, entity_id)
                     continue
 
                 # Compare states
+                checked += 1
                 if not self.compare_light_states(entity_id, expected, actual_state, scene_entity,
                                                 on_off_only=on_off_only):
                     all_match = False
 
+            self.last_validation_checked = checked
             return all_match
 
         except AttributeError as e:
@@ -1748,6 +1777,10 @@ class SceneValidator(hass.Hass):
             if not entity_id:
                 self.log(f"Could not map Hue ID {rid} to entity_id", level="WARNING")
                 all_success = False
+                continue
+
+            if self._state_unreachable(self.get_state(entity_id)):
+                self._log_skip_unreachable("control", entity_id)
                 continue
 
             # Build service call parameters

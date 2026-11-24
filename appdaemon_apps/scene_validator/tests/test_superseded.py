@@ -45,7 +45,10 @@ def app(tmp_path):
         {"entity_id": SELECT, "unique_id": f"{GROUP}_scene_select", "platform": "hue"},
     ]}}))
 
-    validator = SceneValidator(states={STANDARD: "unknown", ABENDS: "unknown", SELECT: "unknown"})
+    validator = SceneValidator(states={STANDARD: "unknown", ABENDS: "unknown", SELECT: "unknown",
+                                       LIGHT: "off"})
+    # Reachable but off: a real validation failure (unreachable lights are skipped)
+    validator.full_states = {LIGHT: {"state": "off", "attributes": {}}}
     validator.args = {
         "inventory_dir": str(inventory_dir),
         "entity_registry_path": str(registry),
@@ -107,5 +110,5 @@ def test_same_scene_reported_twice_still_validates(app):
 
     app.run_scheduled()
 
-    # Light state is unknown in the fake, so validation fails and escalates.
+    # The light is off in the fake, so validation fails and escalates.
     assert STANDARD in retriggered_scenes(app)
