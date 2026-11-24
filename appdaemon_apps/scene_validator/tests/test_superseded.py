@@ -105,7 +105,8 @@ def test_reactivation_after_superseded_validation_is_not_debounced(app):
 
 def test_same_scene_reported_twice_still_validates(app):
     # HA-initiated: scene.* then select report the same scene - must not cancel.
-    app.on_scene_state_changed(STANDARD, "state", "unknown", "2026-11-22T17:00:00", {})
+    app.on_scene_state_changed(STANDARD, "state", "2026-11-22T10:00:00+00:00",
+                               app.get_now().isoformat(), {})
     app.on_select_state_changed(SELECT, "state", "unknown", "Arbeiten Standard", {})
 
     app.run_scheduled()

@@ -652,6 +652,16 @@ class SceneValidator(hass.Hass):
         if old == new or new is None or new in ("unavailable", "unknown"):
             self.log(f"Skipping {entity} - no state change", level="DEBUG")
             return
+        # Restored or re-added entity (integration reload, HA restart): the state is
+        # the last activation time, not a new activation
+        if old in (None, "unavailable", "unknown"):
+            self.log(f"Skipping {entity} - restored state ({old} -> {new})", level="DEBUG")
+            return
+        activated = self._parse_ts(new)
+        if (activated is not None
+                and (self.get_now() - activated).total_seconds() > self.transition_delay):
+            self.log(f"Skipping {entity} - stale activation time {new}", level="DEBUG")
+            return
 
         self._handle_scene_activation(entity, source="scene entity (HA-initiated)")
 
@@ -666,6 +676,10 @@ class SceneValidator(hass.Hass):
         """
         if old == new or new is None or new in ("unavailable", "unknown"):
             self.log(f"Skipping {entity} - no active scene", level="DEBUG")
+            return
+        if old in (None, "unavailable"):
+            # Re-added after an integration reload; unknown -> <scene> is a real activation
+            self.log(f"Skipping {entity} - restored state ({old} -> {new})", level="DEBUG")
             return
 
         select_unique_id = self.select_entity_to_unique_id.get(entity)

@@ -68,7 +68,7 @@ def test_select_change_schedules_validation_of_resolved_scene(app):
 
 def test_ha_activation_reported_by_scene_and_select_validates_once(app):
     # HA-initiated: scene.* timestamp changes, then the bridge reports it via select.
-    app.on_scene_state_changed(SCENE, "state", "2026-11-01T10:00:00", "2026-11-22T17:00:00", {})
+    app.on_scene_state_changed(SCENE, "state", "2026-11-01T10:00:00", app.get_now().isoformat(), {})
     app.on_select_state_changed(SELECT, "state", "unknown", "Standard", {})
 
     assert validations(app) == [SCENE]
