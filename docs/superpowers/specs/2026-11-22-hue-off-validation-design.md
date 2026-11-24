@@ -288,3 +288,25 @@ Rule:
   no brightness or colour; off means `light.turn_off`.
 - Static scenes keep the full check.
 - The deliberate-room-off rule and the switch room-off check are unchanged.
+
+## Amendment 2026-11-24: unreachable lights are skipped (2.4.2)
+
+Found on the Terrasse test: an unreachable lamp (HA state `unavailable`) was
+counted as "off". The scene therefore failed on every activation: Level 2
+re-trigger (restarts a dynamic animation), Level 3, and a circuit-breaker
+failure. Production has 28 unreachable Hue lights. Once every scene is
+validated, this would open the circuit breaker and pause all validation.
+
+Rule (scene validation, static and dynamic):
+- A light whose HA state is `unavailable`, `unknown` or missing is skipped.
+  It is neither OK nor a failure, it gets no command in Level 3, and it is
+  logged once per validation run as
+  `[<scene>] [SKIP] <light> unavailable - not validated`.
+- The scene passes if every other light passes.
+- If every light of the scene is skipped, the run ends with
+  `[SKIP] all scene lights unavailable` and records neither success nor
+  failure.
+- Applies to Level 1, Level 2, Level 3 control and the Level 3 final
+  validation.
+- The room-off check and the deliberate-room-off rule already treat
+  unavailable lights conservatively and are unchanged.
