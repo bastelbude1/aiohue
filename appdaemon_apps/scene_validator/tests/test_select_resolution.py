@@ -68,3 +68,20 @@ def test_duplicate_names_in_group_are_numbered_like_home_assistant():
         resolve_scene_entity_from_select(select_uid, "Nachtlicht (2)", inventories, registry)
         == "scene.keller_nachtlicht_2"
     )
+
+
+def test_duplicate_scene_entries_do_not_shift_numbering():
+    # The same scene listed twice (e.g. two inventories of one bridge) must not
+    # take an extra " (2)" slot: HA numbers each scene id once
+    inventories = inventory(
+        scene("cccc", "Nachtlicht", GROUP),
+        scene("zzzz", "Nachtlicht", GROUP),
+    ) + inventory(scene("cccc", "Nachtlicht", GROUP))
+    registry = {"cccc": "scene.keller_nachtlicht", "zzzz": "scene.keller_nachtlicht_2"}
+    select_uid = f"{GROUP}_scene_select"
+
+    assert (
+        resolve_scene_entity_from_select(select_uid, "Nachtlicht (2)", inventories, registry)
+        == "scene.keller_nachtlicht_2"
+    )
+    assert resolve_scene_entity_from_select(select_uid, "Nachtlicht (3)", inventories, registry) is None

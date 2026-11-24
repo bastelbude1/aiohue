@@ -81,14 +81,13 @@ def resolve_scene_entity_from_select(
     repeats with " (2)", " (3)", ... - so each option maps to one scene ID.
     """
     group_id = select_unique_id[:-len(SCENE_SELECT_SUFFIX)]
-    group_scenes = sorted(
-        (
-            (scene.get('metadata', {}).get('name', ''), scene.get('id'))
-            for inventory in inventories
-            for scene in inventory.get('resources', {}).get('scenes', {}).get('items', [])
-            if _scene_group_rid(scene) == group_id
-        ),
-    )
+    # One entry per scene id: a scene listed twice must not take an extra " (n)" slot
+    names_by_id: Dict[str, str] = {}
+    for inventory in inventories:
+        for scene in inventory.get('resources', {}).get('scenes', {}).get('items', []):
+            if _scene_group_rid(scene) == group_id and scene.get('id') not in names_by_id:
+                names_by_id[scene.get('id')] = scene.get('metadata', {}).get('name', '')
+    group_scenes = sorted((name, scene_id) for scene_id, name in names_by_id.items())
     option_to_scene_id: Dict[str, str] = {}
     for name, scene_id in group_scenes:
         candidate = name
@@ -502,17 +501,20 @@ class SceneValidator(hass.Hass):
             self.error(f"No inventory files found in: {self.inventory_dir}")
             return False
 
-        for inventory_file in inventory_files:
+        loaded = []  # (file, inventory)
+        for inventory_file in sorted(inventory_files):
             try:
                 with open(inventory_file) as f:
-                    inventory = json.load(f)
-                    self.inventories.append(inventory)
-                    # Handle nested bridge_info structure (bridge_info.config.name)
-                    bridge_config = inventory.get('bridge_info', {}).get('config', {})
-                    bridge_name = bridge_config.get('name') or inventory.get('bridge_info', {}).get('name', 'Unknown')
-                    self.log(f"Loaded inventory: {bridge_name}")
+                    loaded.append((inventory_file, json.load(f)))
             except (json.JSONDecodeError, IOError) as e:
                 self.error(f"Failed to load {inventory_file.name}: {e}")
+
+        for inventory_file, inventory in self._dedupe_inventories(loaded):
+            self.inventories.append(inventory)
+            # Handle nested bridge_info structure (bridge_info.config.name)
+            bridge_config = inventory.get('bridge_info', {}).get('config', {})
+            bridge_name = bridge_config.get('name') or inventory.get('bridge_info', {}).get('name', 'Unknown')
+            self.log(f"Loaded inventory: {bridge_name} ({inventory_file.name})")
 
         if not self.inventories:
             self.error("No inventories loaded successfully")
@@ -530,6 +532,41 @@ class SceneValidator(hass.Hass):
             )
 
         return True
+
+    def _dedupe_inventories(self, loaded: List[Tuple[Path, Dict[str, Any]]]
+                            ) -> List[Tuple[Path, Dict[str, Any]]]:
+        """Keep one inventory per bridge_info.config.bridge_id (newest inventoried_at).
+
+        Inventories without a bridge id are all kept. Older duplicates are logged
+        and ignored (e.g. a file left behind after renaming the bridge).
+        """
+        oldest = datetime.min.replace(tzinfo=timezone.utc)
+
+        def bridge_id(inventory: Dict[str, Any]) -> Optional[str]:
+            info = inventory.get('bridge_info')
+            config = info.get('config') if isinstance(info, dict) else None
+            return config.get('bridge_id') if isinstance(config, dict) else None
+
+        def inventoried_at(inventory: Dict[str, Any]) -> datetime:
+            info = inventory.get('bridge_info')
+            value = info.get('inventoried_at') if isinstance(info, dict) else None
+            return self._parse_ts(value) or oldest
+
+        newest: Dict[str, Tuple[Path, Dict[str, Any]]] = {}
+        for item in loaded:
+            bid = bridge_id(item[1])
+            if bid and (bid not in newest
+                        or inventoried_at(item[1]) > inventoried_at(newest[bid][1])):
+                newest[bid] = item
+        kept = []
+        for item in loaded:
+            bid = bridge_id(item[1])
+            if bid and newest[bid] is not item:
+                self.log(f"[WARN] duplicate inventory for bridge {bid} ignored {item[0].name}",
+                         level="WARNING")
+                continue
+            kept.append(item)
+        return kept
 
     def load_entity_registry_mapping(self):
         """
